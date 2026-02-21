@@ -71,6 +71,79 @@ app.post("/api/reservations", async (req,res)=>{
     res.status(500).json({error:"Erreur serveur"});
   }
 });
+// ===== PAYPAL ROUTES =====
 
+const PAYPAL_BASE = process.env.PAYPAL_BASE_URL || "https://api-m.paypal.com";
+
+async function getPayPalToken() {
+  const auth = Buffer.from(
+    process.env.PAYPAL_CLIENT_ID + ":" + process.env.PAYPAL_CLIENT_SECRET
+  ).toString("base64");
+
+  const r = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
+
+  const data = await r.json();
+  return data.access_token;
+}
+
+// CREATE ORDER
+app.post("/api/paypal/create-order", async (req, res) => {
+  try {
+    const token = await getPayPalToken();
+
+    const r = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        intent: "CAPTURE",
+        purchase_units: [
+          {
+            amount: {
+              currency_code: "EUR",
+              value: "15.00",
+            },
+          },
+        ],
+      }),
+    });
+
+    const data = await r.json();
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "paypal error" });
+  }
+});
+
+// CAPTURE ORDER
+app.post("/api/paypal/capture-order", async (req, res) => {
+  try {
+    const { orderID } = req.body;
+    const token = await getPayPalToken();
+
+    const r = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${orderID}/capture`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await r.json();
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "capture failed" });
+  }
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, ()=> console.log("Server running on", PORT));

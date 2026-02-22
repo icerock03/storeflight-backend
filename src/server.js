@@ -46,6 +46,44 @@ async function getPayPalToken() {
 // ================= CREATE ORDER =================
 app.post("/api/paypal/create-order", async (req, res) => {
   try {
+    const { amount, currency } = req.body;
+
+    const token = await getPayPalToken();
+
+    const r = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        intent: "CAPTURE",
+        purchase_units: [
+          {
+            amount: {
+              currency_code: currency || "USD",
+              value: amount,
+            },
+          },
+        ],
+      }),
+    });
+
+    const data = await r.json();
+
+    // IMPORTANT — renvoyer ID
+    res.json({
+      id: data.id,
+      status: data.status,
+      links: data.links,
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "create order failed" });
+  }
+});
+  try {
     const { amount } = req.body;
 
     const token = await getPayPalToken();

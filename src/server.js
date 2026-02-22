@@ -1,65 +1,221 @@
+// src/server.js
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import pg from "pg";
-import { Resend } from "resend";
 
-dotenv.config();
+const { Pool } = pg;
 
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: "1mb" }));
 
+/** =======================
+ *  ENV
+ *  ======================= */
 const PORT = process.env.PORT || 10000;
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 
-/* ================= DB ================= */
-const { Pool } = pg;
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+const DATABASE_URL = process.env.DATABASE_URL;
 
-async function initDB() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS reservations(
-      id SERIAL PRIMARY KEY,
-      full_name TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      email TEXT,
-      service_type TEXT NOT NULL,
-      from_city TEXT,
-      to_city TEXT,
-      check_in TEXT,
-      check_out TEXT,
-      travelers INT DEFAULT 1,
-      notes TEXT,
-      payment_status TEXT DEFAULT 'paid',
-      paypal_order_id TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-  `);
-  console.log("DB ready ✅");
-}
-
-/* ================= HEALTH ================= */
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true, message: "StoreFlight API running ✈️" });
-});
-
-/* ================= PAYPAL ================= */
-const PAYPAL_ENV = (process.env.PAYPAL_ENV || "live").toLowerCase();
+// PayPal
+const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID || "";
+const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET || "";
+const PAYPAL_ENV = (process.env.PAYPAL_ENV || "sandbox").toLowerCase(); // sandbox | live
 const PAYPAL_BASE =
   PAYPAL_ENV === "live"
     ? "https://api-m.paypal.com"
     : "https://api-m.sandbox.paypal.com";
 
-async function getPayPalToken() {
-  const clientId = process.env.PAYPAL_CLIENT_ID;
-  const secret = process.env.PAYPAL_CLIENT_SECRET;
+// Resend
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const EMAIL_FROM = process.env.EMAIL_FROM || "StoreFlight <onboarding@resend.dev>";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "thestoresarlau@gmail.com";
 
-  if (!clientId || !secret) throw new Error("Missing PayPal env vars");
+/** =======================
+ *  MIDDLEWARE
+ *  ======================= */
+app.use(
+  cors({
+    origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN,
+    credentials: true,
+  })
+);
 
-  const auth = Buffer.from(`${clientId}:${secret}`).toString("base64");
+app.use(express.json({ limit: "1mb" }));
+
+/** =======================
+ *  DB (PostgreSQL)
+ *  ======================= */
+if (!DATABASE_URL) {
+  console.error("❌ DATABASE_URL manquant dans les variables Render.");
+}
+
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: DATABASE_URL?.includes("localhost")
+    ? false
+    : { rejectUnauthorized: false }, // Render Postgres
+});
+
+async function initDB() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS reservations (
+        id SERIAL PRIMARY KEY,
+        full_name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        email TEXT,
+        service_type TEXT NOT NULL,
+        from_city TEXT,
+        to_city TEXT,
+        check_in DATE,
+        check_out DATE,
+        travelers INT DEFAULT 1,
+        notes TEXT,
+        deposit_amount NUMERIC(10,2) DEFAULT 15,
+        currency TEXT DEFAULT 'USD',
+        paypal_order_id TEXT,
+        paypal_capture_id TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    console.log("✅ Database ready");
+  } catch (err) {
+    console.error("❌ initDB error:", err?.message || err);
+  }
+}
+initDB();
+
+/** =======================
+ *  HELPERS
+ *  ======================= */
+function pickString(v) {
+  if (v === undefined || v === null) return "";
+  return String(v).trim();
+}
+
+function isValidEmail(email) {
+  if (!email) return true; // email optional
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function badRequest(res, message, extra = {}) {
+  return res.status(400).json({ ok: false, error: message, ...extra });
+}
+
+/** =======================
+ *  HEALTH
+ *  ======================= */
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, message: "StoreFlight API running ✈️" });
+});
+
+/** =======================
+ *  RESERVATIONS
+ *  ======================= */
+
+// GET all reservations
+app.get("/api/reservations", async (_req, res) => {
+  try {
+    const r = await pool.query("SELECT * FROM reservations ORDER BY id DESC;");
+    res.json(r.rows);
+  } catch (err) {
+    console.error("❌ GET /api/reservations error:", err?.message || err);
+    res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
+
+// CREATE reservation (after payment capture or before, your choice)
+app.post("/api/reservations", async (req, res) => {
+  try {
+    const full_name = pickString(req.body.full_name);
+    const phone = pickString(req.body.phone);
+    const email = pickString(req.body.email);
+    const service_type = pickString(req.body.service_type);
+
+    const from_city = pickString(req.body.from_city);
+    const to_city = pickString(req.body.to_city);
+    const check_in = req.body.check_in ? pickString(req.body.check_in) : null;
+    const check_out = req.body.check_out ? pickString(req.body.check_out) : null;
+    const travelers = Number(req.body.travelers || 1);
+    const notes = pickString(req.body.notes);
+
+    const deposit_amount = Number(req.body.deposit_amount || 15);
+    const currency = pickString(req.body.currency || "USD") || "USD";
+
+    const paypal_order_id = pickString(req.body.paypal_order_id);
+    const paypal_capture_id = pickString(req.body.paypal_capture_id);
+
+    // ✅ VALIDATION (au lieu de 500)
+    if (!full_name) return badRequest(res, "full_name obligatoire");
+    if (!phone) return badRequest(res, "phone obligatoire");
+    if (!service_type) return badRequest(res, "service_type obligatoire");
+    if (!isValidEmail(email)) return badRequest(res, "email invalide");
+
+    const insert = await pool.query(
+      `INSERT INTO reservations
+        (full_name, phone, email, service_type, from_city, to_city, check_in, check_out, travelers, notes, deposit_amount, currency, paypal_order_id, paypal_capture_id, status)
+       VALUES
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       RETURNING *;`,
+      [
+        full_name,
+        phone,
+        email || null,
+        service_type,
+        from_city || null,
+        to_city || null,
+        check_in,
+        check_out,
+        Number.isFinite(travelers) ? travelers : 1,
+        notes || null,
+        Number.isFinite(deposit_amount) ? deposit_amount : 15,
+        currency,
+        paypal_order_id || null,
+        paypal_capture_id || null,
+        paypal_capture_id ? "paid" : "pending",
+      ]
+    );
+
+    const reservation = insert.rows[0];
+
+    // ✅ email (optionnel)
+    // Si RESEND_API_KEY absent => on n'échoue pas la réservation
+    if (RESEND_API_KEY) {
+      try {
+        await sendEmailResend({
+          to: ADMIN_EMAIL,
+          subject: `🧾 Nouvelle réservation #${reservation.id} - ${service_type}`,
+          html: renderAdminEmail(reservation),
+        });
+
+        if (email) {
+          await sendEmailResend({
+            to: email,
+            subject: `✅ Réservation confirmée - StoreFlight (#${reservation.id})`,
+            html: renderClientEmail(reservation),
+          });
+        }
+      } catch (e) {
+        console.error("⚠️ Email warning:", e?.message || e);
+      }
+    }
+
+    return res.status(201).json({ ok: true, reservation });
+  } catch (err) {
+    console.error("❌ POST /api/reservations error:", err?.message || err);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
+
+/** =======================
+ *  PAYPAL
+ *  ======================= */
+async function getPayPalAccessToken() {
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
+    throw new Error("PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET manquants");
+  }
+
+  const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString("base64");
 
   const r = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
     method: "POST",
@@ -71,13 +227,19 @@ async function getPayPalToken() {
   });
 
   const data = await r.json();
-  if (!r.ok) throw new Error(data?.error_description || "PayPal token failed");
+  if (!r.ok) {
+    throw new Error(`PayPal token error: ${r.status} ${JSON.stringify(data)}`);
+  }
   return data.access_token;
 }
 
+// Create order
 app.post("/api/paypal/create-order", async (req, res) => {
   try {
-    const token = await getPayPalToken();
+    const amount = pickString(req.body.amount || "15.00");
+    const currency = pickString(req.body.currency || "USD");
+
+    const token = await getPayPalAccessToken();
 
     const r = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
       method: "POST",
@@ -87,156 +249,136 @@ app.post("/api/paypal/create-order", async (req, res) => {
       },
       body: JSON.stringify({
         intent: "CAPTURE",
-        purchase_units: [{ amount: { currency_code: "EUR", value: "15.00" } }],
+        purchase_units: [
+          {
+            amount: {
+              currency_code: currency,
+              value: amount,
+            },
+          },
+        ],
       }),
     });
 
     const data = await r.json();
-    return res.status(r.status).json(data);
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: "paypal_create_order_failed" });
-  }
-});
-
-app.post("/api/paypal/capture-order", async (req, res) => {
-  try {
-    const { orderID } = req.body || {};
-    if (!orderID) return res.status(400).json({ error: "missing_orderID" });
-
-    const token = await getPayPalToken();
-
-    const r = await fetch(
-      `${PAYPAL_BASE}/v2/checkout/orders/${orderID}/capture`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
-
-    const data = await r.json();
-    return res.status(r.status).json(data);
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: "paypal_capture_failed" });
-  }
-});
-
-/* ================= EMAIL (Resend) =================
-   IMPORTANT:
-   - Tu ne peux PAS envoyer depuis thestoresarlau@gmail.com via Resend.
-   - Resend exige un domaine vérifié.
-   - Pour l’instant on utilise onboarding@resend.dev (ok pour démarrer).
-==================================================== */
-const resend = new Resend(process.env.RESEND_API_KEY);
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "thestoresarlau@gmail.com";
-
-async function sendEmails({ clientEmail, full_name, service_type, phone }) {
-  // Email client (si email fourni)
-  if (clientEmail) {
-    await resend.emails.send({
-      from: "The Store Flight <onboarding@resend.dev>",
-      to: clientEmail,
-      subject: "Confirmation - The Store Flight",
-      html: `
-        <h2>Merci pour votre demande ✈️</h2>
-        <p>Bonjour <b>${full_name}</b>,</p>
-        <p>Nous avons bien reçu votre demande : <b>${service_type}</b>.</p>
-        <p>Nous vous contacterons rapidement sur WhatsApp/Téléphone : <b>${phone}</b>.</p>
-        <p>— The Store Flight</p>
-      `,
-    });
-  }
-
-  // Email admin (toujours)
-  await resend.emails.send({
-    from: "The Store Flight <onboarding@resend.dev>",
-    to: ADMIN_EMAIL,
-    subject: "Nouvelle demande payée (15€)",
-    html: `
-      <h2>Nouvelle demande</h2>
-      <p><b>Nom:</b> ${full_name}</p>
-      <p><b>Téléphone:</b> ${phone}</p>
-      <p><b>Email client:</b> ${clientEmail || "-"}</p>
-      <p><b>Service:</b> ${service_type}</p>
-    `,
-  });
-}
-
-/* ================= RESERVATIONS ================= */
-app.post("/api/reservations", async (req, res) => {
-  try {
-    const {
-      full_name,
-      phone,
-      email,
-      service_type,
-      from_city,
-      to_city,
-      check_in,
-      check_out,
-      travelers = 1,
-      notes = "",
-      paypal_order_id = "",
-    } = req.body || {};
-
-    if (!full_name || !phone || !service_type) {
-      return res.status(400).json({ error: "missing_required_fields" });
+    if (!r.ok) {
+      console.error("❌ PayPal create-order:", data);
+      return res.status(400).json({ ok: false, error: "paypal_create_failed", details: data });
     }
 
-    const q = await pool.query(
-      `
-      INSERT INTO reservations
-      (full_name, phone, email, service_type, from_city, to_city, check_in, check_out, travelers, notes, paypal_order_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-      RETURNING *;
-      `,
-      [
-        full_name,
-        phone,
-        email || null,
-        service_type,
-        from_city || null,
-        to_city || null,
-        check_in || null,
-        check_out || null,
-        Number(travelers) || 1,
-        notes,
-        paypal_order_id,
-      ]
-    );
+    return res.json({ ok: true, order: data });
+  } catch (err) {
+    console.error("❌ POST /api/paypal/create-order error:", err?.message || err);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
 
-    // emails
-    await sendEmails({
-      clientEmail: email || "",
-      full_name,
-      service_type,
-      phone,
+// Capture order
+app.post("/api/paypal/capture-order", async (req, res) => {
+  try {
+    const orderID = pickString(req.body.orderID);
+    if (!orderID) return badRequest(res, "orderID obligatoire");
+
+    const token = await getPayPalAccessToken();
+
+    const r = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${orderID}/capture`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
     });
 
-    return res.status(201).json(q.rows[0]);
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: "reservation_create_failed" });
+    const data = await r.json();
+    if (!r.ok) {
+      console.error("❌ PayPal capture-order:", data);
+      return res.status(400).json({ ok: false, error: "paypal_capture_failed", details: data });
+    }
+
+    // Capture ID (si dispo)
+    const captureId =
+      data?.purchase_units?.[0]?.payments?.captures?.[0]?.id || null;
+
+    return res.json({ ok: true, capture: data, captureId });
+  } catch (err) {
+    console.error("❌ POST /api/paypal/capture-order error:", err?.message || err);
+    return res.status(500).json({ ok: false, error: "server_error" });
   }
 });
 
-app.get("/api/reservations", async (req, res) => {
-  try {
-    const r = await pool.query("SELECT * FROM reservations ORDER BY id DESC LIMIT 200");
-    return res.json(r.rows);
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: "reservations_list_failed" });
-  }
-});
-
-/* ================= START ================= */
-initDB()
-  .then(() => {
-    app.listen(PORT, () => console.log("SERVER LIVE 🚀", PORT));
-  })
-  .catch((e) => {
-    console.error("Startup failed:", e);
-    process.exit(1);
+/** =======================
+ *  RESEND EMAIL
+ *  ======================= */
+async function sendEmailResend({ to, subject, html }) {
+  const r = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: EMAIL_FROM,
+      to: [to],
+      subject,
+      html,
+    }),
   });
+
+  const data = await r.json();
+  if (!r.ok) {
+    throw new Error(`Resend error: ${r.status} ${JSON.stringify(data)}`);
+  }
+  return data;
+}
+
+function renderClientEmail(res) {
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5">
+      <h2>✅ Réservation confirmée</h2>
+      <p>Bonjour <b>${res.full_name}</b>,</p>
+      <p>Nous avons bien reçu votre réservation sur <b>StoreFlight</b>.</p>
+      <p><b>Service :</b> ${res.service_type}</p>
+      <p><b>Référence :</b> #${res.id}</p>
+      <p><b>Montant :</b> ${res.deposit_amount} ${res.currency}</p>
+      <hr/>
+      <p>📞 WhatsApp: 00212627201720 / 00221762383780</p>
+      <p>Merci pour votre confiance 🙏</p>
+    </div>
+  `;
+}
+
+function renderAdminEmail(res) {
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.5">
+      <h2>🧾 Nouvelle réservation #${res.id}</h2>
+      <p><b>Nom :</b> ${res.full_name}</p>
+      <p><b>Téléphone :</b> ${res.phone}</p>
+      <p><b>Email :</b> ${res.email || "-"}</p>
+      <p><b>Service :</b> ${res.service_type}</p>
+      <p><b>De :</b> ${res.from_city || "-"}</p>
+      <p><b>Vers :</b> ${res.to_city || "-"}</p>
+      <p><b>Check-in :</b> ${res.check_in || "-"}</p>
+      <p><b>Check-out :</b> ${res.check_out || "-"}</p>
+      <p><b>Voyageurs :</b> ${res.travelers}</p>
+      <p><b>Notes :</b> ${res.notes || "-"}</p>
+      <p><b>PayPal Order :</b> ${res.paypal_order_id || "-"}</p>
+      <p><b>PayPal Capture :</b> ${res.paypal_capture_id || "-"}</p>
+      <p><b>Status :</b> ${res.status}</p>
+    </div>
+  `;
+}
+
+/** =======================
+ *  404 JSON
+ *  ======================= */
+app.use((req, res) => {
+  res.status(404).json({ ok: false, error: "not_found", path: req.path });
+});
+
+/** =======================
+ *  START
+ *  ======================= */
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`✅ PayPal mode: ${PAYPAL_ENV}`);
+});

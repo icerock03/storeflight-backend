@@ -1,58 +1,194 @@
+
 <!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>The Store Flight — Paiement</title>
-  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/style.css" />
+  <title>Paiement - The Store Flight</title>
+
+  <style>
+    body{
+      font-family: Arial, sans-serif;
+      margin:0;
+      background:#0b0b0b;
+      color:#fff;
+    }
+    header{
+      padding:18px 20px;
+      background:#111;
+      border-bottom:1px solid #222;
+    }
+    header a{
+      color:#d4af37;
+      text-decoration:none;
+      font-weight:bold;
+    }
+    .wrap{
+      max-width:900px;
+      margin:0 auto;
+      padding:20px;
+    }
+    .card{
+      background:#111;
+      border:1px solid #222;
+      border-radius:14px;
+      padding:18px;
+      box-shadow:0 8px 24px rgba(0,0,0,.35);
+    }
+    h1{
+      margin:0 0 8px;
+      font-size:22px;
+      color:#d4af37;
+    }
+    p{ color:#cfcfcf; margin:6px 0 14px; }
+    label{ display:block; margin:10px 0 6px; color:#ddd; }
+    input, select{
+      width:100%;
+      padding:12px 12px;
+      border-radius:10px;
+      border:1px solid #2a2a2a;
+      background:#0b0b0b;
+      color:#fff;
+      outline:none;
+    }
+    .row{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:12px;
+    }
+    .note{
+      font-size:13px;
+      color:#9a9a9a;
+      margin-top:8px;
+    }
+    #result{
+      margin-top:14px;
+      padding:12px;
+      border-radius:10px;
+      border:1px solid #2a2a2a;
+      background:#0b0b0b;
+      color:#eaeaea;
+      white-space:pre-wrap;
+      word-break:break-word;
+      display:none;
+    }
+    .ok{ border-color:#2d7a3a !important; }
+    .err{ border-color:#a83a3a !important; }
+    .divider{ height:1px; background:#222; margin:16px 0; }
+  </style>
+
+  <!-- ✅ PayPal SDK Sandbox (Client ID intégré) -->
+  <script src="https://www.paypal.com/sdk/js?client-id=AYgqroFz3PFAryqMqbmP_liyDrAiOaPDyzkEhv3GMtXTqzshEK_XzKhzzEU9hVrP6Xn7Jz57HDX1CEwN&currency=USD"></script>
 </head>
+
 <body>
-<header class="nav">
-  <div class="container inner">
-    <a href="index.html" aria-label="Accueil"><img src="assets/logo.svg" alt="The Store Flight" style="height:44px"></a>
-    <nav class="menu">
-      <a href="index.html">Accueil</a>
-      <a href="services.html">Services</a>
-      <a href="reserver.html">Réserver</a>
-      <a href="paiement.html">Paiement</a>
-      <a href="contact.html">Contact</a>
-    </nav>
-  </div>
-</header>
+  <header>
+    <a href="./index.html">← Retour</a>
+  </header>
 
-
-<section class="section">
-  <div class="container">
-    <div class="sectionTitle">
-      <h2>Paiement</h2>
-      <p>Paiement PayPal sécurisé (acompte). Pour finaliser, un backend PayPal est nécessaire.</p>
-    </div>
+  <div class="wrap">
     <div class="card">
-      <p style="margin:0;color:var(--muted);line-height:1.7">
-        ✅ La page est prête pour l’intégration PayPal.<br/>
-        ⚠️ Pour activer les boutons PayPal, il faut un backend (create-order / capture-order).<br/>
-        Si tu veux, je peux te générer le backend prêt à déployer sur Render.
-      </p>
+      <h1>Paiement sécurisé (PayPal)</h1>
+      <p>Paiement acompte (15$ par défaut). Tu peux changer le montant si besoin.</p>
+
+      <div class="row">
+        <div>
+          <label>Montant</label>
+          <input id="amount" type="number" min="1" step="0.01" value="15.00" />
+        </div>
+        <div>
+          <label>Devise</label>
+          <select id="currency">
+            <option value="USD" selected>USD</option>
+            <option value="EUR">EUR</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="note">
+        Backend : <b id="apiBaseText"></b>
+      </div>
+
+      <div class="divider"></div>
+
+      <div id="paypal-button-container"></div>
+
+      <div id="result"></div>
     </div>
   </div>
-</section>
 
+  <script>
+    // ✅ Ton backend Render
+    const API_BASE = "https://storeflight-backend-1.onrender.com";
+    document.getElementById("apiBaseText").textContent = API_BASE;
 
-<footer class="footer">
-  <div class="container" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between">
-    <div>© The Store Flight — <b>thestoresarlau@gmail.com</b></div>
-    <div>WhatsApp: <b>+212 627 201 720</b></div>
-  </div>
-</footer>
+    const resultBox = document.getElementById("result");
+    function showResult(type, obj){
+      resultBox.style.display = "block";
+      resultBox.classList.remove("ok","err");
+      resultBox.classList.add(type === "ok" ? "ok" : "err");
+      resultBox.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+    }
 
-<a class="waFab" id="waFab" title="WhatsApp" href="javascript:void(0)">
-  <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-    <path d="M20 11.9A8 8 0 0 1 6.2 17L4 20l3.1-2A8 8 0 1 1 20 11.9z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-    <path d="M9.3 9.6c.3-.6.6-.6.9-.6h.7c.2 0 .4.1.5.4l.8 2c.1.2 0 .4-.1.6l-.4.5c-.1.1-.1.3 0 .4.5.8 1.2 1.5 2 2 .1.1.3.1.4 0l.5-.4c.2-.1.4-.2.6-.1l2 .8c.3.1.4.3.4.5v.7c0 .3 0 .6-.6.9-.6.3-2 .6-4.1-.5-2.1-1.1-3.6-3.4-3.9-3.9-1.1-2.1-.8-3.5-.5-4.1z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-  </svg>
-</a>
+    paypal.Buttons({
+      // 1) Créer la commande via TON backend
+      createOrder: async () => {
+        const amount = document.getElementById("amount").value || "15.00";
+        const currency = document.getElementById("currency").value || "USD";
 
-<script src="assets/app.js"></script>
+        const r = await fetch(`${API_BASE}/api/paypal/create-order`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amount: String(amount), currency: String(currency) })
+        });
+
+        const data = await r.json();
+
+        if (!r.ok) {
+          showResult("err", data);
+          throw new Error(data?.error || "create-order failed");
+        }
+
+        if (!data.id) {
+          showResult("err", data);
+          throw new Error("Aucun 'id' reçu depuis create-order");
+        }
+
+        // PayPal attend orderID
+        return data.id;
+      },
+
+      // 2) Capturer la commande via TON backend
+      onApprove: async (data) => {
+        const r = await fetch(`${API_BASE}/api/paypal/capture-order`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderID: data.orderID })
+        });
+
+        const captureData = await r.json();
+
+        if (!r.ok) {
+          showResult("err", captureData);
+          return;
+        }
+
+        showResult("ok", {
+          message: "✅ Paiement capturé avec succès",
+          orderID: data.orderID,
+          capture: captureData
+        });
+      },
+
+      onCancel: () => {
+        showResult("err", "Paiement annulé par l'utilisateur.");
+      },
+
+      onError: (err) => {
+        showResult("err", "Erreur PayPal: " + (err?.message || String(err)));
+      }
+
+    }).render("#paypal-button-container");
+  </script>
 </body>
 </html>

@@ -1,77 +1,102 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8">
-<title>Réserver</title>
-<style>
-body{font-family:Arial;background:#111;color:#fff;text-align:center;padding:40px}
-input,select,textarea{width:300px;padding:10px;margin:8px;border:none;border-radius:6px}
-button{padding:12px 25px;background:gold;border:none;border-radius:6px;font-weight:bold;cursor:pointer}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Réserver</title>
+  <style>
+    body{font-family:Arial;background:#111;color:#fff;text-align:center;padding:40px}
+    form{max-width:380px;margin:0 auto}
+    input,select,textarea{width:100%;padding:10px;margin:8px 0;border:none;border-radius:6px;box-sizing:border-box}
+    label{display:block;text-align:left;margin-top:10px;opacity:.9}
+    button{padding:12px 25px;background:gold;border:none;border-radius:6px;font-weight:bold;cursor:pointer;width:100%}
+    .box{max-width:520px;margin:0 auto;background:#171717;border:1px solid #222;border-radius:14px;padding:18px}
+  </style>
 </head>
-  <script>
-const p=new URLSearchParams(location.search);
-const s=p.get("service");
-if(s){
-document.getElementById("service_type").value=s;
-}
-</script>
+
 <body>
 
-<h1>Réservation</h1>
+  <div class="box">
+    <h1>Réservation</h1>
 
-<form id="form">
+    <form id="form">
 
-<input id="full_name" placeholder="Nom complet" required>
-<input id="phone" placeholder="Téléphone" required>
-<input id="email" placeholder="Email" required>
+      <input id="full_name" placeholder="Nom complet" required>
+      <input id="phone" placeholder="Téléphone" required>
+      <input id="email" placeholder="Email" required>
 
-<select id="service_type">
-<option value="vol">Vol</option>
-<option value="hotel">Hôtel</option>
-<option value="visa">Visa</option>
-</select>
+      <select id="service_type" required>
+        <option value="vol">Vol</option>
+        <option value="hotel">Hôtel</option>
+        <option value="visa">Visa</option>
+      </select>
 
-<input id="from_city" placeholder="Ville départ">
-<input id="to_city" placeholder="Destination">
+      <input id="from_city" placeholder="Ville départ">
+      <input id="to_city" placeholder="Destination">
 
-<label>Date départ</label><br>
-<input type="date" id="check_in"><br>
+      <label>Date départ</label>
+      <input type="date" id="check_in">
 
-<label>Date retour</label><br>
-<input type="date" id="check_out"><br>
+      <label>Date retour</label>
+      <input type="date" id="check_out">
 
-<input id="travelers" type="number" value="1">
+      <input id="travelers" type="number" value="1" min="1">
 
-<textarea id="notes" placeholder="Notes"></textarea><br>
+      <textarea id="notes" placeholder="Notes"></textarea>
 
-<button type="submit">Valider et payer</button>
+      <button type="submit">Valider et payer</button>
 
-</form>
+    </form>
+  </div>
 
 <script>
-document.getElementById("form").addEventListener("submit",e=>{
-e.preventDefault();
+  // ✅ Pré-remplissage via ?service=visa / vol / hotel
+  document.addEventListener("DOMContentLoaded", () => {
+    const p = new URLSearchParams(location.search);
+    const s = p.get("service");
+    if (s) {
+      const el = document.getElementById("service_type");
+      if (el) el.value = s;
+    }
+  });
 
-const data={
-full_name:full_name.value,
-phone:phone.value,
-email:email.value,
-service_type:service_type.value,
-from_city:from_city.value,
-to_city:to_city.value,
-check_in:check_in.value,
-check_out:check_out.value,
-travelers:travelers.value,
-notes:notes.value,
-deposit_amount:15,
-currency:"EUR",
-payment_method:"paypal"
-};
+  document.getElementById("form").addEventListener("submit", (e) => {
+    e.preventDefault();
 
-localStorage.setItem("reservation",JSON.stringify(data));
-location.href="paiement.html";
-});
+    const full_name = document.getElementById("full_name").value.trim();
+    const phone = document.getElementById("phone").value.trim();
+    const email = document.getElementById("email").value.trim();
+    const service_type = document.getElementById("service_type").value;
+
+    const from_city = document.getElementById("from_city").value.trim();
+    const to_city = document.getElementById("to_city").value.trim();
+    const check_in = document.getElementById("check_in").value || null;
+    const check_out = document.getElementById("check_out").value || null;
+
+    const travelersRaw = Number(document.getElementById("travelers").value || 1);
+    const travelers = Number.isFinite(travelersRaw) && travelersRaw > 0 ? travelersRaw : 1;
+
+    const notes = document.getElementById("notes").value.trim();
+
+    const data = {
+      full_name,
+      phone,
+      email,
+      service_type,
+      from_city: from_city || null,
+      to_city: to_city || null,
+      check_in,
+      check_out,
+      travelers,
+      notes: notes || null,
+      deposit_amount: 15,
+      currency: "EUR",
+      payment_method: "paypal"
+    };
+
+    localStorage.setItem("reservation", JSON.stringify(data));
+    location.href = "paiement.html";
+  });
 </script>
 
 </body>

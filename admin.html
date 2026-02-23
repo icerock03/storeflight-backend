@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin — The Store Flight</title>
+  <link rel="stylesheet" href="assets/style.css" />
+  <style>
+    .adminWrap{max-width:1100px;margin:0 auto;padding:26px 14px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:14px}
+    .toolbar .left{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .inp{padding:10px 12px;border:1px solid #2a2a2a;border-radius:10px;background:#111;color:#fff;min-width:240px}
+    .btnA{padding:10px 14px;border-radius:10px;border:1px solid #2a2a2a;background:#1a1a1a;color:#fff;cursor:pointer}
+    .btnA.primary{background:#0ea5e9;border-color:#0ea5e9}
+    .badge{padding:4px 10px;border-radius:999px;border:1px solid #333;font-size:12px}
+    table{width:100%;border-collapse:collapse;margin-top:12px;overflow:hidden;border-radius:14px}
+    th,td{padding:10px 10px;border-bottom:1px solid #222;text-align:left;vertical-align:top}
+    th{background:#141414}
+    tr:hover td{background:#121212}
+    .small{opacity:.85;font-size:12px}
+    .paid{border-color:#22c55e;color:#22c55e}
+    .pending{border-color:#f59e0b;color:#f59e0b}
+    .err{white-space:pre-wrap;color:#ffb3b3;border:1px solid #442;padding:10px;border-radius:10px;background:#1a0f0f;margin-top:12px}
+  </style>
+</head>
+
+<body>
+<header class="nav">
+  <div class="container inner">
+    <a href="index.html" aria-label="Accueil"><img src="assets/logo.svg" alt="The Store Flight" style="height:44px"></a>
+    <nav class="menu">
+      <a href="index.html">Accueil</a>
+      <a href="services.html">Services</a>
+      <a href="reserver.html">Réserver</a>
+      <a href="contact.html">Contact</a>
+      <a href="admin.html">Admin</a>
+    </nav>
+  </div>
+</header>
+
+<div class="adminWrap">
+  <h2>Admin — Réservations</h2>
+  <p class="small">Accès protégé par clé admin. Ne partagez pas la clé.</p>
+
+  <div class="toolbar">
+    <div class="left">
+      <input id="key" class="inp" placeholder="ADMIN_KEY (ex: STOREFLIGHT2026!)" />
+      <input id="backend" class="inp" placeholder="URL Backend Render" value="https://storeflight-backend-1.onrender.com" />
+      <button class="btnA primary" id="load">Charger</button>
+      <button class="btnA" id="save">Enregistrer</button>
+    </div>
+
+    <div class="left">
+      <input id="search" class="inp" placeholder="Rechercher (nom, tel, email, service…)" />
+      <select id="filter" class="inp" style="min-width:180px">
+        <option value="all">Tous</option>
+        <option value="paid">Payés</option>
+        <option value="pending">En attente</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="info" class="small"></div>
+  <div id="error" class="err" style="display:none"></div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Client</th>
+        <th>Service</th>
+        <th>Trajet / Détails</th>
+        <th>Paiement</th>
+        <th>Date</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+
+<script>
+  const keyEl = document.getElementById("key");
+  const backendEl = document.getElementById("backend");
+  const loadBtn = document.getElementById("load");
+  const saveBtn = document.getElementById("save");
+  const rowsEl = document.getElementById("rows");
+  const errorEl = document.getElementById("error");
+  const infoEl = document.getElementById("info");
+  const searchEl = document.getElementById("search");
+  const filterEl = document.getElementById("filter");
+
+  let reservations = [];
+
+  // restore saved settings
+  keyEl.value = localStorage.getItem("admin_key") || "";
+  backendEl.value = localStorage.getItem("admin_backend") || backendEl.value;
+
+  function showError(msg){
+    errorEl.style.display = "block";
+    errorEl.textContent = msg;
+  }
+  function clearError(){
+    errorEl.style.display = "none";
+    errorEl.textContent = "";
+  }
+
+  function badgeStatus(status){
+    const s = (status || "").toLowerCase();
+    if(s === "paid") return `<span class="badge paid">paid</span>`;
+    return `<span class="badge pending">${status || "pending"}</span>`;
+  }
+
+  function safe(v){ return (v === null || v === undefined) ? "" : String(v); }
+
+  function renderTable(list){
+    rowsEl.innerHTML = "";
+    for(const r of list){
+      const date = r.created_at ? new Date(r.created_at).toLocaleString() : "";
+      const client = `
+        <div><b>${safe(r.full_name)}</b></div>
+        <div class="small">${safe(r.phone)} ${r.email ? "• " + safe(r.email) : ""}</div>
+      `;
+      const details = `
+        <div>${safe(r.from_city)} ${r.to_city ? "→ " + safe(r.to_city) : ""}</div>
+        <div class="small">
+          ${r.check_in ? "Départ: " + safe(r.check_in) : ""} 
+          ${r.check_out ? " | Retour: " + safe(r.check_out) : ""} 
+          ${r.travelers ? " | Pax: " + safe(r.travelers) : ""}
+        </div>
+        <div class="small">${r.notes ? "Note: " + safe(r.notes) : ""}</div>
+      `;
+      const pay = `
+        <div><b>${safe(r.deposit_amount)} ${safe(r.currency)}</b></div>
+        <div class="small">Order: ${safe(r.paypal_order_id) || "-"}</div>
+        <div class="small">Capture: ${safe(r.paypal_capture_id) || "-"}</div>
+        <div class="small">Status: ${badgeStatus(r.status)}</div>
+      `;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><b>#${safe(r.id)}</b></td>
+        <td>${client}</td>
+        <td>${safe(r.service_type)}</td>
+        <td>${details}</td>
+        <td>${pay}</td>
+        <td class="small">${date}</td>
+      `;
+      rowsEl.appendChild(tr);
+    }
+    infoEl.textContent = `${list.length} réservation(s) affichée(s).`;
+  }
+
+  function applyFilters(){
+    const q = (searchEl.value || "").toLowerCase().trim();
+    const status = filterEl.value;
+
+    let list = [...reservations];
+
+    if(status !== "all"){
+      list = list.filter(r => (r.status || "").toLowerCase() === status);
+    }
+    if(q){
+      list = list.filter(r => {
+        const blob = [
+          r.full_name, r.phone, r.email, r.service_type,
+          r.from_city, r.to_city, r.notes, r.currency,
+          r.paypal_order_id, r.paypal_capture_id, r.status
+        ].map(x => (x||"").toString().toLowerCase()).join(" ");
+        return blob.includes(q);
+      });
+    }
+
+    renderTable(list);
+  }
+
+  async function load(){
+    clearError();
+    const key = keyEl.value.trim();
+    const backend = backendEl.value.trim().replace(/\/$/, "");
+
+    if(!key){ showError("Entre ta ADMIN_KEY."); return; }
+    if(!backend){ showError("Entre l'URL backend Render."); return; }
+
+    infoEl.textContent = "Chargement...";
+    const url = `${backend}/api/admin/reservations?key=${encodeURIComponent(key)}`;
+
+    const resp = await fetch(url);
+    const data = await resp.json().catch(() => ({}));
+
+    if(!resp.ok || !data.ok){
+      showError("Erreur API:\n" + JSON.stringify(data, null, 2));
+      infoEl.textContent = "";
+      return;
+    }
+
+    reservations = data.reservations || [];
+    applyFilters();
+  }
+
+  loadBtn.addEventListener("click", load);
+
+  saveBtn.addEventListener("click", () => {
+    localStorage.setItem("admin_key", keyEl.value.trim());
+    localStorage.setItem("admin_backend", backendEl.value.trim().replace(/\/$/, ""));
+    infoEl.textContent = "✅ Enregistré dans ce navigateur.";
+  });
+
+  searchEl.addEventListener("input", applyFilters);
+  filterEl.addEventListener("change", applyFilters);
+</script>
+
+</body>
+</html>

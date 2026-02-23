@@ -5,11 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Paiement</title>
 
-  <!-- IMPORTANT: currency=EUR doit matcher ton backend -->
   <script src="https://www.paypal.com/sdk/js?client-id=AfUrubsCvRdT7fWJPaNImjSdiW0rKpxIvLO7Js8fwFYJK6tpZYDyqcUUY2u1E6ckodmgBEoy0OVSlzYU&currency=EUR"></script>
 
   <style>
-    body{background:#111;color:#fff;text-align:center;font-family:Arial;padding:70px 18px}
+    body{background:#111;color:#fff;text-align:center;font-family:Arial;padding-top:80px}
     .box{max-width:520px;margin:0 auto;background:#171717;border:1px solid #222;border-radius:14px;padding:22px}
     .muted{opacity:.75}
   </style>
@@ -18,28 +17,27 @@
 
   <div class="box">
     <h2>Paiement acompte 15€</h2>
-    <p class="muted">Paiement sécurisé PayPal — votre réservation sera enregistrée automatiquement.</p>
-    <div id="paypal-button-container" style="margin-top:16px"></div>
+    <p class="muted">Après paiement, votre réservation est enregistrée automatiquement.</p>
+    <div id="paypal-button-container" style="margin-top:18px"></div>
   </div>
 
 <script>
   const API_BASE = "https://storeflight-backend-1.onrender.com";
 
-  // On récupère la réservation sauvegardée depuis reserver.html (localStorage)
   const reservation = JSON.parse(localStorage.getItem("reservation") || "null");
 
   if (!reservation) {
     document.body.innerHTML = `
       <div class="box">
         <h2>Erreur</h2>
-        <p class="muted">Aucune réservation trouvée. Merci de retourner sur la page Réserver.</p>
+        <p class="muted">Aucune réservation trouvée. Retournez sur la page Réserver.</p>
         <p><a href="reserver.html" style="color:#6aa8ff">Retour</a></p>
       </div>
     `;
     throw new Error("No reservation in localStorage");
   }
 
-  // Normalise les champs utiles
+  // Valeurs sûres
   reservation.deposit_amount = reservation.deposit_amount || 15;
   reservation.currency = reservation.currency || "EUR";
 
@@ -47,33 +45,34 @@
 
     createOrder: (data, actions) => {
       return actions.order.create({
-        purchase_units: [{ amount: { value: "15.00", currency_code: "EUR" } }]
+        purchase_units: [
+          { amount: { value: "15.00", currency_code: "EUR" } }
+        ]
       });
     },
 
     onApprove: async (data, actions) => {
       const details = await actions.order.capture();
 
-      // ✅ on envoie order + capture au backend pour passer en paid
+      // ✅ IMPORTANT: mettre order + capture dans la réservation
       reservation.paypal_order_id = data.orderID;
       reservation.paypal_capture_id = details.id;
 
-      const r = await fetch(`${API_BASE}/api/reservations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const r = await fetch(`${API_BASE}/api/reservations`,{
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
         body: JSON.stringify(reservation)
       });
 
       if (!r.ok) {
         const txt = await r.text();
-        alert("Erreur lors de l'enregistrement: " + txt);
+        alert("Erreur serveur: " + txt);
         return;
       }
 
-      // Nettoyage
       localStorage.removeItem("reservation");
 
-      // ✅ redirection page succès
+      // ✅ redirection vers success.html (déjà créé)
       window.location.href = "success.html";
     },
 

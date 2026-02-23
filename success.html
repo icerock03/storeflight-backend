@@ -1,1 +1,55 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paiement confirmé</title>
 
+<style>
+body{
+  background:#111;
+  color:#fff;
+  font-family:Arial;
+  text-align:center;
+  padding:60px 20px;
+}
+.box{
+  max-width:700px;
+  margin:auto;
+  background:#181818;
+  padding:25px;
+  border-radius:14px;
+  border:1px solid #2a2a2a;
+}
+.btn{
+  display:inline-block;
+  margin-top:20px;
+  padding:12px 22px;
+  background:#0ea5e9;
+  color:#fff;
+  text-decoration:none;
+  border-radius:8px;
+}
+</style>
+</head>
+<body>
+
+<div class="box">
+<h1>✅ Paiement réussi</h1>
+<p>Merci pour votre confiance.</p>
+<p>Votre réservation a bien été enregistrée.</p>
+
+<h3>Détails :</h3>
+<pre id="details"></pre>
+
+<a href="index.html" class="btn">Retour accueil</a>
+</div>
+
+<script>
+const data = localStorage.getItem("last_reservation");
+document.getElementById("details").textContent =
+data ? data : "Aucune donnée";
+</script>
+
+</body>
+</html>

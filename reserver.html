@@ -9,6 +9,13 @@ input,select,textarea{width:300px;padding:10px;margin:8px;border:none;border-rad
 button{padding:12px 25px;background:gold;border:none;border-radius:6px;font-weight:bold;cursor:pointer}
 </style>
 </head>
+  <script>
+const p=new URLSearchParams(location.search);
+const s=p.get("service");
+if(s){
+document.getElementById("service_type").value=s;
+}
+</script>
 <body>
 
 <h1>Réservation</h1>

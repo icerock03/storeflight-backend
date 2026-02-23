@@ -1,327 +1,71 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Réserver & Payer 15€ - The Store Flight</title>
-
-  <style>
-    :root{
-      --bg:#0b0b0b;
-      --card:#111;
-      --border:#222;
-      --text:#fff;
-      --muted:#cfcfcf;
-      --gold:#d4af37;
-      --field:#0b0b0b;
-      --field-border:#2a2a2a;
-      --ok:#2d7a3a;
-      --err:#a83a3a;
-    }
-    body{ margin:0; font-family:Arial, sans-serif; background:var(--bg); color:var(--text); }
-    header{
-      padding:16px 18px; background:#0f0f0f; border-bottom:1px solid var(--border);
-      display:flex; align-items:center; justify-content:space-between; gap:12px;
-    }
-    header a{ color:var(--gold); text-decoration:none; font-weight:bold; }
-    .wrap{ max-width:980px; margin:0 auto; padding:18px; }
-    .grid{ display:grid; grid-template-columns: 1.2fr 0.8fr; gap:14px; }
-    @media (max-width: 900px){ .grid{ grid-template-columns:1fr; } }
-
-    .card{
-      background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px;
-      box-shadow:0 8px 24px rgba(0,0,0,.35);
-    }
-    h1{ margin:0 0 8px; font-size:22px; color:var(--gold); }
-    p{ margin:6px 0 12px; color:var(--muted); }
-
-    .row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    @media (max-width: 700px){ .row{ grid-template-columns:1fr; } }
-
-    label{ display:block; margin:10px 0 6px; color:#ddd; font-size:14px; }
-    input, select, textarea{
-      width:100%; padding:12px; border-radius:12px; border:1px solid var(--field-border);
-      background:var(--field); color:var(--text); outline:none;
-    }
-    textarea{ min-height:100px; resize:vertical; }
-
-    .badge{
-      display:inline-block; padding:6px 10px; border-radius:999px; font-size:13px;
-      border:1px solid var(--border); color:var(--muted);
-    }
-    .price{
-      font-size:22px; color:var(--gold); font-weight:800; margin:4px 0 0;
-    }
-    .small{ font-size:13px; color:#9a9a9a; }
-    .divider{ height:1px; background:var(--border); margin:14px 0; }
-
-    #result{
-      display:none; margin-top:12px; padding:12px; border-radius:12px; border:1px solid var(--field-border);
-      background:#0b0b0b; white-space:pre-wrap; word-break:break-word;
-    }
-    #result.ok{ border-color:var(--ok); }
-    #result.err{ border-color:var(--err); }
-
-    .btn-whatsapp{
-      display:inline-block; margin-top:10px; padding:10px 12px; border-radius:12px;
-      background:var(--gold); color:#111; font-weight:700; text-decoration:none;
-    }
-  </style>
-
-  <!-- ✅ PayPal LIVE SDK (EUR) -->
-  <script src="https://www.paypal.com/sdk/js?client-id=TON_CLIENT_ID_LIVE&currency=EUR"></script>
+<meta charset="UTF-8">
+<title>Réserver</title>
+<style>
+body{font-family:Arial;background:#111;color:#fff;text-align:center;padding:40px}
+input,select,textarea{width:300px;padding:10px;margin:8px;border:none;border-radius:6px}
+button{padding:12px 25px;background:gold;border:none;border-radius:6px;font-weight:bold;cursor:pointer}
+</style>
 </head>
-
 <body>
-<header>
-  <a href="./index.html">← Retour</a>
-  <span class="badge">Acompte : 15€</span>
-</header>
 
-<div class="wrap">
-  <div class="grid">
-    <!-- FORM -->
-    <div class="card">
-      <h1>Réserver & payer l’acompte</h1>
-      <p>Remplis le formulaire, puis paie <b>15€</b>. Après paiement, ta demande est enregistrée et on te contacte rapidement.</p>
+<h1>Réservation</h1>
 
-      <div class="row">
-        <div>
-          <label>Nom complet *</label>
-          <input id="full_name" placeholder="Ex: Ismaila Sene" required />
-        </div>
-        <div>
-          <label>WhatsApp / Téléphone *</label>
-          <input id="phone" placeholder="Ex: +212..." required />
-        </div>
-      </div>
+<form id="form">
 
-      <div class="row">
-        <div>
-          <label>Email</label>
-          <input id="email" type="email" placeholder="exemple@email.com" />
-        </div>
-        <div>
-          <label>Service *</label>
-          <select id="service_type" required>
-            <option value="">— Choisir —</option>
-            <option>Billet d’avion</option>
-            <option>Réservation d’hôtel</option>
-            <option>Visa Schengen RDV</option>
-            <option>E-Visa</option>
-            <option>Assurance voyage</option>
-            <option>Tour / Voyage organisé</option>
-          </select>
-        </div>
-      </div>
+<input id="full_name" placeholder="Nom complet" required>
+<input id="phone" placeholder="Téléphone" required>
+<input id="email" placeholder="Email" required>
 
-      <div class="row">
-        <div>
-          <label>Ville de départ</label>
-          <input id="from_city" placeholder="Ex: Casablanca" />
-        </div>
-        <div>
-          <label>Ville d’arrivée</label>
-          <input id="to_city" placeholder="Ex: Paris" />
-        </div>
-      </div>
+<select id="service_type">
+<option value="vol">Vol</option>
+<option value="hotel">Hôtel</option>
+<option value="visa">Visa</option>
+</select>
 
-      <div class="row">
-        <div>
-          <label>Date départ / Check-in</label>
-          <input id="check_in" type="date" />
-        </div>
-        <div>
-          <label>Date retour / Check-out</label>
-          <input id="check_out" type="date" />
-        </div>
-      </div>
+<input id="from_city" placeholder="Ville départ">
+<input id="to_city" placeholder="Destination">
 
-      <div class="row">
-        <div>
-          <label>Nombre de voyageurs</label>
-          <input id="travelers" type="number" min="1" value="1" />
-        </div>
-        <div>
-          <label>Notes</label>
-          <input id="notes_short" placeholder="Ex: horaires flexibles, bagages..." />
-        </div>
-      </div>
+<label>Date départ</label><br>
+<input type="date" id="check_in"><br>
 
-      <label>Détails (optionnel)</label>
-      <textarea id="notes" placeholder="Ex: classe éco/business, hôtel 4*, quartier, budget, etc."></textarea>
+<label>Date retour</label><br>
+<input type="date" id="check_out"><br>
 
-      <div id="result"></div>
-    </div>
+<input id="travelers" type="number" value="1">
 
-    <!-- PAYMENT -->
-    <div class="card">
-      <h1>Payer 15€</h1>
-      <p class="small">Le paiement déclenche l’enregistrement automatique de ta demande.</p>
-      <div class="price">15,00 €</div>
+<textarea id="notes" placeholder="Notes"></textarea><br>
 
-      <div class="divider"></div>
+<button type="submit">Valider et payer</button>
 
-      <div id="paypal-button-container"></div>
-
-      <p class="small">
-        Backend : <b id="apiBaseText"></b>
-      </p>
-
-      <div id="afterSuccess" style="display:none;">
-        <a id="waLink" class="btn-whatsapp" target="_blank" rel="noopener">📲 Envoyer un message WhatsApp</a>
-        <p class="small">Tu peux aussi nous écrire directement après paiement.</p>
-      </div>
-    </div>
-  </div>
-</div>
+</form>
 
 <script>
-  // ✅ Ton backend Render
-  const API_BASE = "https://storeflight-backend-1.onrender.com";
-  document.getElementById("apiBaseText").textContent = API_BASE;
+document.getElementById("form").addEventListener("submit",e=>{
+e.preventDefault();
 
-  const resultBox = document.getElementById("result");
-  function showResult(type, textOrObj){
-    resultBox.style.display = "block";
-    resultBox.classList.remove("ok","err");
-    resultBox.classList.add(type);
-    resultBox.textContent = (typeof textOrObj === "string") ? textOrObj : JSON.stringify(textOrObj, null, 2);
-  }
+const data={
+full_name:full_name.value,
+phone:phone.value,
+email:email.value,
+service_type:service_type.value,
+from_city:from_city.value,
+to_city:to_city.value,
+check_in:check_in.value,
+check_out:check_out.value,
+travelers:travelers.value,
+notes:notes.value,
+deposit_amount:15,
+currency:"EUR",
+payment_method:"paypal"
+};
 
-  function getFormData(){
-    const data = {
-      full_name: document.getElementById("full_name").value.trim(),
-      phone: document.getElementById("phone").value.trim(),
-      email: document.getElementById("email").value.trim(),
-      service_type: document.getElementById("service_type").value,
-      from_city: document.getElementById("from_city").value.trim(),
-      to_city: document.getElementById("to_city").value.trim(),
-      check_in: document.getElementById("check_in").value || null,
-      check_out: document.getElementById("check_out").value || null,
-      travelers: Number(document.getElementById("travelers").value || 1),
-      notes: [
-        document.getElementById("notes_short").value.trim(),
-        document.getElementById("notes").value.trim()
-      ].filter(Boolean).join(" | ")
-    };
-    return data;
-  }
-
-  function validateForm(){
-    const d = getFormData();
-    if (!d.full_name || !d.phone || !d.service_type){
-      showResult("err", "❌ Remplis au minimum : Nom, WhatsApp/Téléphone, Service.");
-      return false;
-    }
-    return true;
-  }
-
-  // On stocke l'orderID pour l'enregistrer ensuite
-  let lastOrderID = null;
-  let lastCapture = null;
-
-  paypal.Buttons({
-    // 1) create order via backend (montant FIXE 15€)
-    createOrder: async () => {
-      if (!validateForm()) throw new Error("Form invalid");
-
-      const r = await fetch(`${API_BASE}/api/paypal/create-order`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: "15.00", currency: "EUR" })
-      });
-
-      const data = await r.json();
-      if (!r.ok || !data.id){
-        showResult("err", data);
-        throw new Error("create-order failed");
-      }
-
-      lastOrderID = data.id;
-      showResult("ok", "✅ Commande PayPal créée. Continue le paiement…");
-      return data.id;
-    },
-
-    // 2) capture order via backend
-    onApprove: async (data) => {
-      const r = await fetch(`${API_BASE}/api/paypal/capture-order`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderID: data.orderID })
-      });
-
-      const captureData = await r.json();
-      if (!r.ok){
-        showResult("err", captureData);
-        return;
-      }
-
-      lastCapture = captureData;
-
-      // 3) après paiement capturé -> enregistrer la demande en DB
-      const form = getFormData();
-
-      // On met les infos PayPal dans "notes" (robuste même si ta DB n'a pas de colonnes PayPal)
-      const paypalInfo = {
-        paypal_order_id: data.orderID,
-        paypal_status: captureData?.status,
-        payer: captureData?.payer?.email_address || null,
-        paid_amount: "15.00",
-        currency: "EUR"
-      };
-
-      const payload = {
-        ...form,
-        deposit_amount: 15,
-        payment_method: "paypal",
-        status: "paid",
-        notes: (form.notes ? form.notes + " | " : "") + "PAYPAL=" + JSON.stringify(paypalInfo)
-      };
-
-      const r2 = await fetch(`${API_BASE}/api/reservations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      const saved = await r2.json();
-      if (!r2.ok){
-        showResult("err", { message: "Paiement OK, mais enregistrement DB a échoué", details: saved });
-        return;
-      }
-
-      showResult("ok",
-        "✅ Paiement capturé + Demande enregistrée !\n\n" +
-        "Référence PayPal: " + data.orderID + "\n" +
-        "Service: " + form.service_type + "\n" +
-        "Nom: " + form.full_name + "\n" +
-        "WhatsApp: " + form.phone
-      );
-
-      // bouton WhatsApp
-      const waMsg =
-        `Bonjour The Store Flight ✅%0A` +
-        `J’ai payé l’acompte 15€.%0A` +
-        `Référence PayPal: ${data.orderID}%0A` +
-        `Nom: ${form.full_name}%0A` +
-        `Téléphone: ${form.phone}%0A` +
-        `Service: ${form.service_type}%0A` +
-        `Départ: ${form.from_city || "-"} → ${form.to_city || "-"}%0A` +
-        `Dates: ${form.check_in || "-"} / ${form.check_out || "-"}%0A` +
-        `Voyageurs: ${form.travelers}%0A` +
-        `Notes: ${form.notes || "-"}`;
-
-      // Mets ici ton numéro WhatsApp pro (format international sans +)
-      const WA_NUMBER = "212627201720"; 
-      const waLink = `https://wa.me/${WA_NUMBER}?text=${waMsg}`;
-      document.getElementById("waLink").href = waLink;
-      document.getElementById("afterSuccess").style.display = "block";
-    },
-
-    onCancel: () => showResult("err", "Paiement annulé."),
-    onError: (err) => showResult("err", "Erreur PayPal: " + (err?.message || String(err)))
-  }).render("#paypal-button-container");
+localStorage.setItem("reservation",JSON.stringify(data));
+location.href="paiement.html";
+});
 </script>
+
 </body>
 </html>

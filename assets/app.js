@@ -1,86 +1,67 @@
-const CONFIG = {
-  brand: "The Store Flight",
-  email: "thestoresarlau@gmail.com",
-  whatsappNumber: "212627201720",
-  currency: "EUR",
-  depositAmount: 20,
-  paypalClientId: "AfUrubsCvRdT7fWJPaNImjSdiW0rKpxIvLO7Js8fwFYJK6tpZYDyqcUUY2u1E6ckodmgBEoy0OVSlzYU",
-  backendUrl: "http://localhost:5000" // remplace par ton lien Render
-};
-
-const $ = (s) => document.querySelector(s);
-const $$ = (s) => Array.from(document.querySelectorAll(s));
-
-function setActiveNav(){
-  const p = (location.pathname.split("/").pop() || "index.html").toLowerCase();
-  $$(".menu a").forEach(a=>{
-    if((a.getAttribute("href")||"").toLowerCase() === p) a.classList.add("active");
-  });
-}
-
-function formatMsg(d){
-  const lines = [
-    `✅ Nouvelle demande - ${CONFIG.brand}`,
-    `Service: ${d.service || "-"}`,
-    `Nom: ${d.fullname || "-"}`,
-    `Téléphone: ${d.phone || "-"}`,
-    `Email: ${d.email || "-"}`,
-    `Départ: ${d.from || "-"}`,
-    `Destination/Ville: ${d.to || d.city || "-"}`,
-    `Date 1: ${d.date1 || "-"}`,
-    `Date 2: ${d.date2 || "-"}`,
-    `Passagers: ${d.pax || "-"}`,
-    `Détails: ${d.notes || "-"}`
-  ];
-  return encodeURIComponent(lines.join("\n"));
-}
-
-function goWhatsApp(d){
-  window.open(`https://wa.me/${CONFIG.whatsappNumber}?text=${formatMsg(d)}`, "_blank");
-}
-
-function saveReq(d){
-  localStorage.setItem("tsf_last_request", JSON.stringify(d));
-}
-
-document.addEventListener("DOMContentLoaded", ()=>{
-  setActiveNav();
-
+// assets/app.js
+(() => {
+  // =========================
   // WhatsApp floating button
-  const fab = $("#waFab");
-  if(fab){
-    fab.addEventListener("click", ()=>{
-      const last = JSON.parse(localStorage.getItem("tsf_last_request") || "{}");
-      goWhatsApp(Object.keys(last).length ? last : { service:"Info", notes:"Bonjour, j’ai besoin d’informations." });
-    });
+  // =========================
+  const waFab = document.getElementById("waFab");
+  if (waFab) {
+    const phone = "212627201720"; // change if needed (no +)
+    const msg = encodeURIComponent("Bonjour The Store Flight, je veux réserver un service.");
+    waFab.href = `https://wa.me/${phone}?text=${msg}`;
+    waFab.target = "_blank";
+    waFab.rel = "noopener";
   }
 
-  // Booking form
-  const form = $("#bookingForm");
-  if(form){
-    const sel = form.querySelector("[name='service']");
-    const blocks = $$("[data-block]");
-    const apply = ()=>{
-      const v = sel.value;
-      blocks.forEach(b => b.style.display = "none");
-      $$(`[data-block~='${v}']`).forEach(b => b.style.display = "block");
+  // =========================
+  // Services cards: make clickable
+  // Works on index.html + services.html
+  // =========================
+  const cards = document.querySelectorAll(".cards .card");
+  if (!cards || cards.length === 0) return;
+
+  // Detect service type from card text
+  function detectServiceType(text) {
+    const t = (text || "").toLowerCase();
+
+    if (t.includes("billet") || t.includes("vol") || t.includes("avion") || t.includes("flight")) return "vol";
+    if (t.includes("hôtel") || t.includes("hotel")) return "hotel";
+    if (t.includes("visa") && !t.includes("evisa")) return "visa";
+    if (t.includes("assurance")) return "assurance";
+    if (t.includes("evisa")) return "evisa";
+    if (t.includes("tour") || t.includes("voyage") || t.includes("organisé") || t.includes("organise")) return "tour";
+
+    return null;
+  }
+
+  function makeCardClickable(card) {
+    const service = detectServiceType(card.innerText);
+    if (!service) return;
+
+    // Make it look clickable
+    card.style.cursor = "pointer";
+
+    // Accessibility: allow keyboard
+    card.setAttribute("role", "link");
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("aria-label", `Ouvrir le formulaire: ${service}`);
+
+    const go = () => {
+      window.location.href = `reserver.html?service=${encodeURIComponent(service)}`;
     };
-    sel.addEventListener("change", apply); apply();
 
-    form.addEventListener("submit",(e)=>{
-      e.preventDefault();
-      const d = Object.fromEntries(new FormData(form).entries());
-      Object.keys(d).forEach(k => { if(String(d[k]).trim()==="") delete d[k]; });
-      saveReq(d);
-      location.href="paiement.html";
+    card.addEventListener("click", (e) => {
+      // Prevent weird selections
+      e.preventDefault?.();
+      go();
     });
 
-    const waQuick = $("#waQuick");
-    if(waQuick){
-      waQuick.addEventListener("click", ()=>{
-        const d = Object.fromEntries(new FormData(form).entries());
-        goWhatsApp(d);
-      });
-    }
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        go();
+      }
+    });
   }
-});
+
+  cards.forEach(makeCardClickable);
+})();

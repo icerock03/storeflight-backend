@@ -2,48 +2,206 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Paiement</title>
+
+<!-- PayPal SDK -->
 <script src="https://www.paypal.com/sdk/js?client-id=AfUrubsCvRdT7fWJPaNImjSdiW0rKpxIvLO7Js8fwFYJK6tpZYDyqcUUY2u1E6ckodmgBEoy0OVSlzYU&currency=EUR"></script>
+
 <style>
-body{background:#111;color:#fff;text-align:center;font-family:Arial;padding-top:80px}
+  body{background:#111;color:#fff;text-align:center;font-family:Arial;padding:60px 16px}
+  .box{max-width:720px;margin:0 auto;background:#181818;border:1px solid #2a2a2a;border-radius:14px;padding:18px}
+  .muted{opacity:.85}
+  .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+  .tag{padding:6px 10px;border:1px solid #333;border-radius:999px}
+  .error{color:#ffb3b3;margin-top:12px;white-space:pre-wrap;text-align:left}
+  .ok{color:#a7ffb3;margin-top:12px}
 </style>
 </head>
+
 <body>
+  <div class="box">
+    <h2>Paiement acompte 15€</h2>
+    <p class="muted">Après paiement, votre réservation sera confirmée et un email sera envoyé.</p>
 
-<h2>Paiement acompte 15€</h2>
+    <div class="row">
+      <div class="tag">Montant: <b>15.00 EUR</b></div>
+      <div class="tag">Paiement: <b>PayPal</b></div>
+    </div>
 
-<div id="paypal-button-container"></div>
+    <div style="margin-top:18px" id="paypal-button-container"></div>
+
+    <div id="status" class="muted" style="margin-top:14px"></div>
+    <div id="err" class="error" style="display:none"></div>
+  </div>
 
 <script>
-const reservation=JSON.parse(localStorage.getItem("reservation"));
+  // ✅ CHANGE ONLY IF your backend URL changes
+  const API_BASE = "https://storeflight-backend-1.onrender.com";
 
-paypal.Buttons({
+  const statusEl = document.getElementById("status");
+  const errEl = document.getElementById("err");
 
-createOrder:(data,actions)=>{
-return actions.order.create({
-purchase_units:[{amount:{value:"15.00"}}]
-});
-},
+  function setStatus(msg) {
+    statusEl.textContent = msg || "";
+  }
+  function showError(msg) {
+    errEl.style.display = "block";
+    errEl.textContent = msg || "Erreur inconnue";
+  }
 
-onApprove:(data,actions)=>{
-return actions.order.capture().then(async details=>{
+  // Load reservation from localStorage (created in reserver.html)
+  const reservationDraft = JSON.parse(localStorage.getItem("reservation") || "null");
 
-reservation.paypal_order_id=data.orderID;
+  if (!reservationDraft) {
+    showError("Aucune réservation trouvée.\nRetournez au formulaire et cliquez sur Valider.");
+    setStatus("");
+  }
 
-await fetch("https://storeflight-backend-1.onrender.com/api/reservations",{
-method:"POST",
-headers:{ "Content-Type":"application/json" },
-body:JSON.stringify(reservation)
-});
+  // We will create a DB reservation first (pending) => get reservation_id
+  let reservationId = null;
 
-localStorage.removeItem("reservation");
+  async function createPendingReservation() {
+    setStatus("Création de la réservation...");
+    const payload = {
+      ...reservationDraft,
+      deposit_amount: 15,
+      currency: "EUR",
+      payment_method: "paypal"
+    };
 
-document.body.innerHTML="<h1>Paiement réussi ✅</h1><p>Votre réservation a été enregistrée.</p>";
+    const resp = await fetch(`${API_BASE}/api/reservations/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-});
-}
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      throw new Error(data?.error || data?.message || "Erreur création réservation");
+    }
 
-}).render("#paypal-button-container");
+    reservationId = data.reservation.id;
+    setStatus(`Réservation créée (#${reservationId}). Vous pouvez payer maintenant.`);
+    return reservationId;
+  }
+
+  async function backendCreateOrder() {
+    setStatus("Création de la commande PayPal...");
+    const resp = await fetch(`${API_BASE}/api/paypal/create-order`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: "15.00", currency: "EUR" }),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      throw new Error("PayPal create-order failed: " + JSON.stringify(data));
+    }
+    return data.order.id; // PayPal Order ID
+  }
+
+  async function backendCaptureOrder(orderID) {
+    setStatus("Validation du paiement...");
+    const resp = await fetch(`${API_BASE}/api/paypal/capture-order`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderID }),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      throw new Error("PayPal capture failed: " + JSON.stringify(data));
+    }
+    return { captureId: data.captureId, raw: data.capture };
+  }
+
+  async function finalizeReservation(orderID, captureId) {
+    setStatus("Confirmation et envoi de l'email...");
+    const resp = await fetch(`${API_BASE}/api/reservations/finalize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reservation_id: reservationId,
+        paypal_order_id: orderID,
+        paypal_capture_id: captureId
+      }),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      throw new Error("Finalize failed: " + JSON.stringify(data));
+    }
+    return data.reservation;
+  }
+
+  (async () => {
+    try {
+      if (!reservationDraft) return;
+      await createPendingReservation();
+    } catch (e) {
+      showError(String(e?.message || e));
+    }
+  })();
+
+  // Render PayPal Buttons
+  paypal.Buttons({
+    // Use backend order creation (recommended)
+    createOrder: async () => {
+      if (!reservationId) {
+        // if creation failed or not finished
+        throw new Error("Réservation non créée. Rafraîchissez la page ou retournez au formulaire.");
+      }
+      const orderID = await backendCreateOrder();
+      return orderID;
+    },
+
+    onApprove: async (data) => {
+      try {
+        const orderID = data.orderID;
+        const { captureId } = await backendCaptureOrder(orderID);
+
+        if (!captureId) {
+          throw new Error("Paiement OK mais captureId manquant. Vérifiez PayPal.");
+        }
+
+        const reservation = await finalizeReservation(orderID, captureId);
+
+        // Save summary for success page
+        localStorage.setItem("last_reservation", JSON.stringify({
+          id: reservation.id,
+          full_name: reservation.full_name,
+          phone: reservation.phone,
+          email: reservation.email,
+          service_type: reservation.service_type,
+          from_city: reservation.from_city,
+          to_city: reservation.to_city,
+          check_in: reservation.check_in,
+          check_out: reservation.check_out,
+          travelers: reservation.travelers,
+          deposit_amount: reservation.deposit_amount,
+          currency: reservation.currency,
+          status: reservation.status
+        }, null, 2));
+
+        // Clean draft
+        localStorage.removeItem("reservation");
+
+        // Redirect to success page
+        window.location.href = "success.html";
+      } catch (e) {
+        showError(String(e?.message || e));
+      }
+    },
+
+    onCancel: () => {
+      setStatus("Paiement annulé. Vous pouvez réessayer.");
+    },
+
+    onError: (err) => {
+      showError("Erreur PayPal: " + (err?.message || String(err)));
+    }
+  }).render("#paypal-button-container");
 </script>
 
 </body>

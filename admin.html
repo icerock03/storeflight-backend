@@ -6,22 +6,21 @@
   <title>Admin — The Store Flight</title>
   <link rel="stylesheet" href="assets/style.css" />
   <style>
-    .adminWrap{max-width:1100px;margin:0 auto;padding:26px 14px}
-    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:14px}
+    .wrap{max-width:1100px;margin:0 auto;padding:26px 14px}
+    .card{background:#171717;border:1px solid #222;border-radius:16px;padding:16px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .inp{padding:10px 12px;border:1px solid #2a2a2a;border-radius:10px;background:#111;color:#fff;min-width:260px}
-    .btnA{padding:10px 14px;border-radius:10px;border:1px solid #2a2a2a;background:#1a1a1a;color:#fff;cursor:pointer}
-    .btnA.primary{background:#0ea5e9;border-color:#0ea5e9}
-    .badge{padding:4px 10px;border-radius:999px;border:1px solid #333;font-size:12px}
+    .btn{padding:10px 14px;border-radius:10px;border:1px solid #2a2a2a;background:#1a1a1a;color:#fff;cursor:pointer}
+    .btn.primary{background:#0ea5e9;border-color:#0ea5e9}
+    .small{opacity:.85;font-size:12px}
+    .err{white-space:pre-wrap;color:#ffb3b3;border:1px solid #442;padding:10px;border-radius:10px;background:#1a0f0f;margin-top:12px;display:none}
     table{width:100%;border-collapse:collapse;margin-top:12px;overflow:hidden;border-radius:14px}
-    th,td{padding:10px 10px;border-bottom:1px solid #222;text-align:left;vertical-align:top}
+    th,td{padding:10px;border-bottom:1px solid #222;text-align:left;vertical-align:top}
     th{background:#141414}
     tr:hover td{background:#121212}
-    .small{opacity:.85;font-size:12px}
+    .badge{padding:4px 10px;border-radius:999px;border:1px solid #333;font-size:12px}
     .paid{border-color:#22c55e;color:#22c55e}
     .pending{border-color:#f59e0b;color:#f59e0b}
-    .err{white-space:pre-wrap;color:#ffb3b3;border:1px solid #442;padding:10px;border-radius:10px;background:#1a0f0f;margin-top:12px}
-    .lock{max-width:520px;margin:40px auto;background:#171717;border:1px solid #222;border-radius:16px;padding:18px}
-    code{background:#111;border:1px solid #222;padding:2px 6px;border-radius:6px}
   </style>
 </head>
 
@@ -38,19 +37,41 @@
   </div>
 </header>
 
-<div class="adminWrap" id="app" style="display:none">
-  <h2>Admin — Réservations</h2>
-  <p class="small">Page admin sécurisée. Accès uniquement via un lien spécial.</p>
+<div class="wrap">
 
-  <div class="toolbar">
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <input id="backend" class="inp" placeholder="URL Backend Render"
-        value="https://storeflight-backend-1.onrender.com" />
-      <button class="btnA primary" id="load">Charger</button>
-      <button class="btnA" id="save">Enregistrer</button>
+  <!-- LOGIN -->
+  <div class="card" id="loginCard">
+    <h2>🔒 Admin Login</h2>
+    <p class="small">Connexion sécurisée (JWT) via le backend Render.</p>
+
+    <div class="row" style="margin-top:10px">
+      <input id="backend" class="inp" value="https://storeflight-backend-1.onrender.com" />
+      <button class="btn" id="saveBackend">Enregistrer backend</button>
     </div>
 
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <div class="row" style="margin-top:10px">
+      <input id="user" class="inp" placeholder="Email admin" />
+      <input id="pass" class="inp" placeholder="Mot de passe" type="password" />
+      <button class="btn primary" id="loginBtn">Se connecter</button>
+    </div>
+
+    <div class="err" id="errLogin"></div>
+  </div>
+
+  <!-- APP -->
+  <div class="card" id="appCard" style="display:none">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <h2 style="margin:0">Admin — Réservations</h2>
+        <div class="small" id="info"></div>
+      </div>
+      <div class="row">
+        <button class="btn" id="reload">Charger</button>
+        <button class="btn" id="logout">Logout</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
       <input id="search" class="inp" placeholder="Rechercher (nom, tel, email, service…)" />
       <select id="filter" class="inp" style="min-width:180px">
         <option value="all">Tous</option>
@@ -58,155 +79,141 @@
         <option value="pending">En attente</option>
       </select>
     </div>
+
+    <div class="err" id="errApp"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Client</th>
+          <th>Service</th>
+          <th>Trajet / Détails</th>
+          <th>Paiement</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
   </div>
 
-  <div id="info" class="small"></div>
-  <div id="error" class="err" style="display:none"></div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Client</th>
-        <th>Service</th>
-        <th>Trajet / Détails</th>
-        <th>Paiement</th>
-        <th>Date</th>
-      </tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
-</div>
-
-<div class="lock" id="locked">
-  <h2>🔒 Accès restreint</h2>
-  <p class="small">
-    Cette page admin n’est accessible qu’avec un lien spécial contenant une clé.<br>
-    Exemple : <code>admin.html#key=Pasamba2022@</code>
-  </p>
 </div>
 
 <script>
-  // ✅ Mets ici la même clé que dans Render (ADMIN_KEY)
-  const ADMIN_KEY = "Pasamba2022@";
-
   const backendEl = document.getElementById("backend");
-  const loadBtn = document.getElementById("load");
-  const saveBtn = document.getElementById("save");
+  const saveBackendBtn = document.getElementById("saveBackend");
+
+  const loginCard = document.getElementById("loginCard");
+  const appCard = document.getElementById("appCard");
+
+  const userEl = document.getElementById("user");
+  const passEl = document.getElementById("pass");
+  const loginBtn = document.getElementById("loginBtn");
+  const errLogin = document.getElementById("errLogin");
+
+  const errApp = document.getElementById("errApp");
   const rowsEl = document.getElementById("rows");
-  const errorEl = document.getElementById("error");
   const infoEl = document.getElementById("info");
+  const reloadBtn = document.getElementById("reload");
+  const logoutBtn = document.getElementById("logout");
   const searchEl = document.getElementById("search");
   const filterEl = document.getElementById("filter");
 
-  const app = document.getElementById("app");
-  const locked = document.getElementById("locked");
+  backendEl.value = localStorage.getItem("admin_backend") || backendEl.value;
+
+  function showErr(el, msg){
+    el.style.display = "block";
+    el.textContent = msg;
+  }
+  function clearErr(el){
+    el.style.display = "none";
+    el.textContent = "";
+  }
+
+  function safe(v){ return (v===null||v===undefined) ? "" : String(v); }
+  function badge(status){
+    const s = (status||"").toLowerCase();
+    if(s==="paid") return `<span class="badge paid">paid</span>`;
+    return `<span class="badge pending">${safe(status||"pending")}</span>`;
+  }
 
   let reservations = [];
 
-  // Restore backend URL
-  backendEl.value = localStorage.getItem("admin_backend") || backendEl.value;
-
-  // Check key in URL hash
-  const hash = new URLSearchParams((location.hash || "").replace("#", ""));
-  const keyFromUrl = (hash.get("key") || "").trim();
-
-  if (keyFromUrl && keyFromUrl === ADMIN_KEY) {
-    locked.style.display = "none";
-    app.style.display = "block";
-  } else {
-    locked.style.display = "block";
-    app.style.display = "none";
-  }
-
-  function showError(msg){
-    errorEl.style.display = "block";
-    errorEl.textContent = msg;
-  }
-  function clearError(){
-    errorEl.style.display = "none";
-    errorEl.textContent = "";
-  }
-  function badgeStatus(status){
-    const s = (status || "").toLowerCase();
-    if(s === "paid") return `<span class="badge paid">paid</span>`;
-    return `<span class="badge pending">${status || "pending"}</span>`;
-  }
-  function safe(v){ return (v === null || v === undefined) ? "" : String(v); }
-
-  function renderTable(list){
+  function render(list){
     rowsEl.innerHTML = "";
     for(const r of list){
       const date = r.created_at ? new Date(r.created_at).toLocaleString() : "";
-      const client = `
-        <div><b>${safe(r.full_name)}</b></div>
-        <div class="small">${safe(r.phone)} ${r.email ? "• " + safe(r.email) : ""}</div>
-      `;
-      const details = `
-        <div>${safe(r.from_city)} ${r.to_city ? "→ " + safe(r.to_city) : ""}</div>
-        <div class="small">
-          ${r.check_in ? "Départ: " + safe(r.check_in) : ""} 
-          ${r.check_out ? " | Retour: " + safe(r.check_out) : ""} 
-          ${r.travelers ? " | Pax: " + safe(r.travelers) : ""}
-        </div>
-        <div class="small">${r.notes ? "Note: " + safe(r.notes) : ""}</div>
-      `;
-      const pay = `
-        <div><b>${safe(r.deposit_amount)} ${safe(r.currency)}</b></div>
-        <div class="small">Order: ${safe(r.paypal_order_id) || "-"}</div>
-        <div class="small">Capture: ${safe(r.paypal_capture_id) || "-"}</div>
-        <div class="small">Status: ${badgeStatus(r.status)}</div>
-      `;
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><b>#${safe(r.id)}</b></td>
-        <td>${client}</td>
+        <td>
+          <div><b>${safe(r.full_name)}</b></div>
+          <div class="small">${safe(r.phone)} ${r.email ? "• "+safe(r.email) : ""}</div>
+        </td>
         <td>${safe(r.service_type)}</td>
-        <td>${details}</td>
-        <td>${pay}</td>
+        <td>
+          <div>${safe(r.from_city)} ${r.to_city ? "→ "+safe(r.to_city) : ""}</div>
+          <div class="small">
+            ${r.check_in ? "Départ: "+safe(r.check_in) : ""} 
+            ${r.check_out ? " | Retour: "+safe(r.check_out) : ""} 
+            ${r.travelers ? " | Pax: "+safe(r.travelers) : ""}
+          </div>
+          <div class="small">${r.notes ? "Note: "+safe(r.notes) : ""}</div>
+        </td>
+        <td>
+          <div><b>${safe(r.deposit_amount)} ${safe(r.currency)}</b></div>
+          <div class="small">Order: ${safe(r.paypal_order_id) || "-"}</div>
+          <div class="small">Capture: ${safe(r.paypal_capture_id) || "-"}</div>
+          <div class="small">Status: ${badge(r.status)}</div>
+        </td>
         <td class="small">${date}</td>
       `;
       rowsEl.appendChild(tr);
     }
-    infoEl.textContent = `${list.length} réservation(s) affichée(s).`;
+    infoEl.textContent = `${list.length} réservation(s).`;
   }
 
   function applyFilters(){
-    const q = (searchEl.value || "").toLowerCase().trim();
-    const status = filterEl.value;
-
+    const q = (searchEl.value||"").toLowerCase().trim();
+    const st = filterEl.value;
     let list = [...reservations];
 
-    if(status !== "all"){
-      list = list.filter(r => (r.status || "").toLowerCase() === status);
+    if(st!=="all"){
+      list = list.filter(x => (x.status||"").toLowerCase()===st);
     }
     if(q){
       list = list.filter(r => {
         const blob = [
-          r.full_name, r.phone, r.email, r.service_type,
-          r.from_city, r.to_city, r.notes, r.currency,
-          r.paypal_order_id, r.paypal_capture_id, r.status
-        ].map(x => (x||"").toString().toLowerCase()).join(" ");
+          r.full_name, r.phone, r.email, r.service_type, r.from_city, r.to_city,
+          r.notes, r.currency, r.paypal_order_id, r.paypal_capture_id, r.status
+        ].map(v => (v||"").toString().toLowerCase()).join(" ");
         return blob.includes(q);
       });
     }
-
-    renderTable(list);
+    render(list);
   }
 
-  async function load(){
-    clearError();
-    const backend = backendEl.value.trim().replace(/\/$/, "");
-    if(!backend){ showError("Entre l'URL backend Render."); return; }
+  function getBackend(){
+    return backendEl.value.trim().replace(/\/$/, "");
+  }
 
+  function getToken(){
+    return localStorage.getItem("admin_token") || "";
+  }
+
+  async function loadReservations(){
+    clearErr(errApp);
     infoEl.textContent = "Chargement...";
-    const url = `${backend}/api/admin/reservations?key=${encodeURIComponent(keyFromUrl)}`;
+    const backend = getBackend();
+    const token = getToken();
 
-    const resp = await fetch(url);
-    const data = await resp.json().catch(() => ({}));
+    const r = await fetch(`${backend}/api/admin/reservations`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
 
-    if(!resp.ok || !data.ok){
-      showError("Erreur API:\n" + JSON.stringify(data, null, 2));
+    const data = await r.json().catch(()=>({}));
+    if(!r.ok || !data.ok){
+      showErr(errApp, "Erreur:\n" + JSON.stringify(data, null, 2));
       infoEl.textContent = "";
       return;
     }
@@ -215,11 +222,49 @@
     applyFilters();
   }
 
-  loadBtn.addEventListener("click", load);
+  // Auto-login si token existe
+  if(getToken()){
+    loginCard.style.display="none";
+    appCard.style.display="block";
+    loadReservations();
+  }
 
-  saveBtn.addEventListener("click", () => {
-    localStorage.setItem("admin_backend", backendEl.value.trim().replace(/\/$/, ""));
-    infoEl.textContent = "✅ Backend enregistré dans ce navigateur.";
+  saveBackendBtn.addEventListener("click", () => {
+    localStorage.setItem("admin_backend", getBackend());
+    alert("✅ Backend enregistré");
+  });
+
+  loginBtn.addEventListener("click", async () => {
+    try{
+      clearErr(errLogin);
+      const backend = getBackend();
+
+      const r = await fetch(`${backend}/api/admin/login`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ user: userEl.value.trim(), pass: passEl.value.trim() })
+      });
+
+      const data = await r.json().catch(()=>({}));
+      if(!r.ok || !data.ok){
+        showErr(errLogin, "Login refusé.\n" + JSON.stringify(data, null, 2));
+        return;
+      }
+
+      localStorage.setItem("admin_token", data.token);
+      loginCard.style.display="none";
+      appCard.style.display="block";
+      await loadReservations();
+    }catch(e){
+      showErr(errLogin, "Erreur: " + (e?.message || e));
+    }
+  });
+
+  reloadBtn.addEventListener("click", loadReservations);
+
+  logoutBtn.addEventListener("click", () => {
+    localStorage.removeItem("admin_token");
+    location.reload();
   });
 
   searchEl.addEventListener("input", applyFilters);

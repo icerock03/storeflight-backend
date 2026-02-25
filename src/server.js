@@ -4,7 +4,7 @@ import cors from "cors";
 import pg from "pg";
 
 const { Pool } = pg;
-
+import jwt from "jsonwebtoken";
 const app = express();
 
 /** =======================
@@ -13,7 +13,9 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 const ADMIN_KEY = process.env.ADMIN_KEY || ""; // <-- set in Render
-
+const JWT_SECRET = process.env.JWT_SECRET || "";
+const ADMIN_USER = process.env.ADMIN_USER || "";
+const ADMIN_PASS = process.env.ADMIN_PASS || "";
 const DATABASE_URL = process.env.DATABASE_URL;
 
 // PayPal
@@ -388,7 +390,68 @@ function renderAdminEmail(resv) {
     </div>
   `;
 }
+/** =======================
+ *  ADMIN AUTH (JWT)
+ *  ======================= */
 
+function requireAdmin(req, res, next) {
+  try {
+    const auth = req.headers.authorization || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (!token) return res.status(401).json({ ok: false, error: "missing_token" });
+
+    if (!JWT_SECRET) return res.status(500).json({ ok: false, error: "JWT_SECRET_missing" });
+
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (payload?.role !== "admin") return res.status(403).json({ ok: false, error: "forbidden" });
+
+    req.admin = payload;
+    next();
+  } catch (e) {
+    return res.status(401).json({ ok: false, error: "invalid_token" });
+  }
+}
+
+// Login admin -> returns JWT token
+app.post("/api/admin/login", async (req, res) => {
+  try {
+    const user = (req.body?.user || "").toString().trim();
+    const pass = (req.body?.pass || "").toString().trim();
+
+    if (!ADMIN_USER || !ADMIN_PASS) {
+      return res.status(500).json({ ok: false, error: "ADMIN_USER_or_PASS_missing" });
+    }
+    if (!JWT_SECRET) {
+      return res.status(500).json({ ok: false, error: "JWT_SECRET_missing" });
+    }
+
+    if (user !== ADMIN_USER || pass !== ADMIN_PASS) {
+      return res.status(401).json({ ok: false, error: "login_refused" });
+    }
+
+    const token = jwt.sign(
+      { role: "admin", user: ADMIN_USER },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    return res.json({ ok: true, token });
+  } catch (err) {
+    console.error("❌ POST /api/admin/login error:", err?.message || err);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
+
+// Protected: list reservations
+app.get("/api/admin/reservations", requireAdmin, async (_req, res) => {
+  try {
+    const r = await pool.query("SELECT * FROM reservations ORDER BY id DESC;");
+    return res.json({ ok: true, reservations: r.rows });
+  } catch (err) {
+    console.error("❌ GET /api/admin/reservations error:", err?.message || err);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
 /** =======================
  *  404 JSON
  *  ======================= */

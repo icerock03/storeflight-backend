@@ -1,157 +1,103 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Paiement — The Store Flight</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Paiement — StoreFlight</title>
 
-<!-- PayPal SDK -->
-<script>
-  // IMPORTANT: mets ton CLIENT ID (sandbox ou live selon PAYPAL_ENV côté backend)
-  const PAYPAL_CLIENT_ID = "AfUrubsCvRdT7fWJPaNImjSdiW0rKpxIvLO7Js8fwFYJK6tpZYDyqcUUY2u1E6ckodmgBEoy0OVSlzYU";
-  const PAYPAL_CURRENCY = "EUR";
-  const s = document.createElement("script");
-  s.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(PAYPAL_CLIENT_ID)}&currency=${encodeURIComponent(PAYPAL_CURRENCY)}`;
-  s.onload = () => window.__paypalLoaded = true;
-  s.onerror = () => window.__paypalLoaded = false;
-  document.head.appendChild(s);
-</script>
+  <!-- IMPORTANT: client-id public (OK) + currency -->
+  <script src="https://www.paypal.com/sdk/js?client-id=AfUrubsCvRdT7fWJPaNImjSdiW0rKpxIvLO7Js8fwFYJK6tpZYDyqcUUY2u1E6ckodmgBEoy0OVSlzYU&currency=EUR"></script>
 
-<style>
-  body{background:#0b0f17;color:#fff;font-family:Arial;margin:0;padding:60px 16px}
-  .box{max-width:560px;margin:0 auto;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:18px}
-  h1{margin:0 0 8px}
-  .muted{opacity:.85;font-size:13px;line-height:1.4}
-  .line{height:1px;background:rgba(255,255,255,.12);margin:14px 0}
-  .warn{background:rgba(255,193,7,.12);border:1px solid rgba(255,193,7,.25);padding:10px;border-radius:12px;margin-top:12px}
-  .err{background:rgba(255,0,0,.10);border:1px solid rgba(255,0,0,.25);padding:10px;border-radius:12px;margin-top:12px;white-space:pre-wrap}
-  .btnBack{display:inline-block;margin-top:12px;color:#ffd166;text-decoration:none;font-weight:bold}
-</style>
+  <style>
+    body{background:#0b0f15;color:#fff;font-family:Arial;margin:0;padding:40px;display:flex;justify-content:center}
+    .card{max-width:520px;width:100%;background:#121826;border:1px solid #1f2937;border-radius:16px;padding:22px}
+    .muted{opacity:.85}
+    .err{margin-top:12px;background:#2a0f12;border:1px solid #5b1b22;color:#ffb3b3;padding:10px;border-radius:12px;white-space:pre-wrap}
+    a{color:#ffd166;text-decoration:none}
+  </style>
 </head>
-
 <body>
-  <div class="box">
-    <h1>Paiement acompte 15€</h1>
-    <div class="muted">Après paiement, votre réservation est enregistrée automatiquement.</div>
-    <div class="line"></div>
 
-    <div id="summary" class="muted"></div>
+<div class="card">
+  <h2>Paiement acompte 15€</h2>
+  <p class="muted">Après paiement, votre réservation est enregistrée automatiquement.</p>
 
-    <div id="paypal-button-container" style="margin-top:14px"></div>
+  <div id="summary" class="muted" style="margin:12px 0 18px 0"></div>
 
-    <div id="msg" class="muted" style="margin-top:12px"></div>
-    <div id="err" class="err" style="display:none"></div>
+  <div id="paypal-button-container"></div>
+  <div id="msg"></div>
 
-    <a class="btnBack" href="reserver.html">← Retour réservation</a>
-  </div>
+  <p style="margin-top:16px"><a href="reserver.html">← Retour réservation</a></p>
+</div>
 
 <script>
   const BACKEND = "https://storeflight-backend-1.onrender.com";
-  const msg = document.getElementById("msg");
-  const err = document.getElementById("err");
-  const summary = document.getElementById("summary");
-
-  function showErr(text){
-    err.style.display = "block";
-    err.textContent = text;
-  }
-  function clearErr(){
-    err.style.display = "none";
-    err.textContent = "";
-  }
 
   const reservation = JSON.parse(localStorage.getItem("reservation") || "null");
+  const msg = document.getElementById("msg");
+  const summary = document.getElementById("summary");
 
   if(!reservation){
-    summary.innerHTML = `<div class="warn">⚠️ Aucune réservation trouvée. Merci de remplir le formulaire d’abord.</div>`;
-    msg.textContent = "";
+    msg.innerHTML = '<div class="err">Aucune réservation trouvée (localStorage vide). Retournez sur la page Réserver.</div>';
   } else {
-    summary.innerHTML = `
-      <b>Client:</b> ${reservation.full_name || "-"} • <b>Tél:</b> ${reservation.phone || "-"}<br>
-      <b>Service:</b> ${reservation.service_type || "-"} • <b>Montant:</b> 15 EUR
-    `;
+    summary.textContent =
+      `Client: ${reservation.full_name || "-"} • Tél: ${reservation.phone || "-"}\n` +
+      `Service: ${reservation.service_type || "-"} • Montant: 15 EUR`;
   }
 
-  async function waitPaypal(){
-    // attend que le SDK soit vraiment chargé
-    for(let i=0;i<50;i++){
-      if(window.paypal && typeof window.paypal.Buttons === "function") return true;
-      await new Promise(r => setTimeout(r, 100));
-    }
-    return false;
+  function showErr(text){
+    msg.innerHTML = `<div class="err">${text}</div>`;
   }
 
-  (async () => {
-    if(!reservation){
-      showErr("Aucune réservation en localStorage.\nRetourne sur reserver.html puis clique Valider et payer.");
-      return;
-    }
-
-    const ok = await waitPaypal();
-    if(!ok){
-      showErr("PayPal ne s'est pas chargé.\n- Vérifie que ton client-id est correct\n- Essaie Ctrl+F5\n- Vérifie la console (F12) > Console");
-      return;
-    }
-
-    clearErr();
-    msg.textContent = "PayPal prêt ✅";
-
-    paypal.Buttons({
-      createOrder: async () => {
-        msg.textContent = "Création du paiement...";
+  paypal.Buttons({
+    createOrder: async () => {
+      try{
         const r = await fetch(`${BACKEND}/api/paypal/create-order`, {
           method: "POST",
-          headers: { "Content-Type":"application/json" },
+          headers: {"Content-Type":"application/json"},
           body: JSON.stringify({ amount: "15.00", currency: "EUR" })
         });
-        const data = await r.json().catch(()=>({}));
-        if(!r.ok || !data.ok) throw new Error("create-order: " + JSON.stringify(data));
-        return data.id; // orderID
-      },
 
-      onApprove: async (data) => {
-        try{
-          msg.textContent = "Validation du paiement...";
-          const cap = await fetch(`${BACKEND}/api/paypal/capture-order`, {
-            method: "POST",
-            headers: { "Content-Type":"application/json" },
-            body: JSON.stringify({ orderID: data.orderID })
-          });
-          const capData = await cap.json().catch(()=>({}));
-          if(!cap.ok || !capData.ok) throw new Error("capture-order: " + JSON.stringify(capData));
-
-          // Enregistrer la réservation
-          msg.textContent = "Enregistrement réservation...";
-          const payload = {
-            ...reservation,
-            paypal_order_id: data.orderID,
-            paypal_capture_id: capData.captureId,
-            status: "paid"
-          };
-
-          const save = await fetch(`${BACKEND}/api/reservations`, {
-            method: "POST",
-            headers: { "Content-Type":"application/json" },
-            body: JSON.stringify(payload)
-          });
-          const saved = await save.json().catch(()=>({}));
-          if(!save.ok || !saved.ok) throw new Error("save-reservation: " + JSON.stringify(saved));
-
-          localStorage.removeItem("reservation");
-          window.location.href = "success.html";
-        }catch(e){
-          console.error(e);
-          showErr(String(e?.message || e));
-          msg.textContent = "❌ Erreur. Réessaie ou contacte WhatsApp.";
-        }
-      },
-
-      onError: (e) => {
-        console.error(e);
-        showErr("PayPal error: " + (e?.message || e));
+        const data = await r.json();
+        if(!r.ok || !data.ok) throw new Error(JSON.stringify(data, null, 2));
+        return data.id; // PayPal orderID
+      }catch(e){
+        showErr("PayPal error: create-order: " + (e.message || e));
+        throw e;
       }
-    }).render("#paypal-button-container");
-  })();
+    },
+
+    onApprove: async (data) => {
+      try{
+        // 1) capture côté backend
+        const r = await fetch(`${BACKEND}/api/paypal/capture-order`, {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ orderID: data.orderID })
+        });
+        const cap = await r.json();
+        if(!r.ok || !cap.ok) throw new Error(JSON.stringify(cap, null, 2));
+
+        // 2) enregistrer réservation en base (paid)
+        reservation.paypal_order_id = data.orderID;
+        reservation.paypal_capture_id = cap.captureId;
+        reservation.status = "paid";
+
+        const r2 = await fetch(`${BACKEND}/api/reservations`,{
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify(reservation)
+        });
+        const saved = await r2.json();
+        if(!r2.ok || !saved.ok) throw new Error(JSON.stringify(saved, null, 2));
+
+        localStorage.removeItem("reservation");
+        location.href = "success.html";
+      }catch(e){
+        showErr("Erreur après paiement:\n" + (e.message || e));
+      }
+    }
+  }).render("#paypal-button-container");
 </script>
 
 </body>

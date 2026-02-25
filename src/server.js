@@ -2,9 +2,9 @@
 import express from "express";
 import cors from "cors";
 import pg from "pg";
+import jwt from "jsonwebtoken";
 
 const { Pool } = pg;
-import jwt from "jsonwebtoken";
 const app = express();
 
 /** =======================
@@ -12,11 +12,7 @@ const app = express();
  *  ======================= */
 const PORT = process.env.PORT || 10000;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
-const ADMIN_KEY = process.env.ADMIN_KEY || ""; // <-- set in Render
-const JWT_SECRET = process.env.JWT_SECRET || "";
-const ADMIN_USER = process.env.ADMIN_USER || "";
-const ADMIN_PASS = process.env.ADMIN_PASS || "";
-const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_URL = process.env.DATABASE_URL || "";
 
 // PayPal
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID || "";
@@ -27,7 +23,12 @@ const PAYPAL_BASE =
     ? "https://api-m.paypal.com"
     : "https://api-m.sandbox.paypal.com";
 
-// Resend
+// Admin / JWT
+const JWT_SECRET = process.env.JWT_SECRET || "";
+const ADMIN_USER = process.env.ADMIN_USER || "";
+const ADMIN_PASS = process.env.ADMIN_PASS || "";
+
+// Resend (optionnel)
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const EMAIL_FROM = process.env.EMAIL_FROM || "StoreFlight <onboarding@resend.dev>";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "thestoresarlau@gmail.com";
@@ -44,53 +45,39 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 
 /** =======================
- *  DB (PostgreSQL)
+ *  DB
  *  ======================= */
-if (!DATABASE_URL) console.error("❌ DATABASE_URL manquant dans les variables Render.");
-
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: DATABASE_URL?.includes("localhost") ? false : { rejectUnauthorized: false },
 });
 
 async function initDB() {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS reservations (
-        id SERIAL PRIMARY KEY,
-        full_name TEXT NOT NULL,
-        phone TEXT NOT NULL,
-        email TEXT,
-        service_type TEXT NOT NULL,
-        from_city TEXT,
-        to_city TEXT,
-        check_in DATE,
-        check_out DATE,
-        travelers INT DEFAULT 1,
-        notes TEXT,
-        deposit_amount NUMERIC(10,2) DEFAULT 15,
-        currency TEXT DEFAULT 'EUR',
-        paypal_order_id TEXT,
-        paypal_capture_id TEXT,
-        status TEXT DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-
-    // Safe migrations (if table exists already)
-    await pool.query(`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS deposit_amount NUMERIC(10,2) DEFAULT 15;`);
-    await pool.query(`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'EUR';`);
-    await pool.query(`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS paypal_order_id TEXT;`);
-    await pool.query(`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS paypal_capture_id TEXT;`);
-    await pool.query(`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';`);
-    await pool.query(`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();`);
-
-    console.log("✅ Database ready");
-  } catch (err) {
-    console.error("❌ initDB error:", err?.message || err);
-  }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reservations (
+      id SERIAL PRIMARY KEY,
+      full_name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      email TEXT,
+      service_type TEXT NOT NULL,
+      from_city TEXT,
+      to_city TEXT,
+      check_in DATE,
+      check_out DATE,
+      travelers INT DEFAULT 1,
+      notes TEXT,
+      deposit_amount NUMERIC(10,2) DEFAULT 15,
+      currency TEXT DEFAULT 'EUR',
+      payment_method TEXT DEFAULT 'paypal',
+      paypal_order_id TEXT,
+      paypal_capture_id TEXT,
+      status TEXT DEFAULT 'pending',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  console.log("✅ Database ready");
 }
-initDB();
+initDB().catch((e) => console.error("❌ initDB error:", e?.message || e));
 
 /** =======================
  *  HELPERS
@@ -99,59 +86,36 @@ function pickString(v) {
   if (v === undefined || v === null) return "";
   return String(v).trim();
 }
-
 function isValidEmail(email) {
   if (!email) return true;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
-
 function badRequest(res, message, extra = {}) {
   return res.status(400).json({ ok: false, error: message, ...extra });
 }
+function requireAuth(req, res, next) {
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!token) return res.status(401).json({ ok: false, error: "missing_token" });
 
-function requireAdminKey(req) {
-  const key = pickString(req.query.key || req.headers["x-admin-key"]);
-  return ADMIN_KEY && key === ADMIN_KEY;
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch {
+    return res.status(401).json({ ok: false, error: "invalid_token" });
+  }
 }
 
 /** =======================
  *  HEALTH
  *  ======================= */
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, message: "StoreFlight API running ✈️" });
-});
+app.get("/api/health", (_req, res) => res.json({ ok: true, message: "StoreFlight API running ✈️" }));
 
 /** =======================
- *  RESERVATIONS
+ *  PUBLIC RESERVATION (create)
  *  ======================= */
-
-// GET all reservations (public list: OK for now, but admin endpoint is better)
-app.get("/api/reservations", async (_req, res) => {
-  try {
-    const r = await pool.query("SELECT * FROM reservations ORDER BY id DESC;");
-    res.json(r.rows);
-  } catch (err) {
-    console.error("❌ GET /api/reservations error:", err?.message || err);
-    res.status(500).json({ ok: false, error: "server_error" });
-  }
-});
-
-// ✅ ADMIN: list reservations (secure with key)
-app.get("/api/admin/reservations", async (req, res) => {
-  try {
-    if (!ADMIN_KEY) return res.status(500).json({ ok: false, error: "ADMIN_KEY_missing" });
-    if (!requireAdminKey(req)) return res.status(401).json({ ok: false, error: "unauthorized" });
-
-    const r = await pool.query("SELECT * FROM reservations ORDER BY id DESC;");
-    res.json({ ok: true, reservations: r.rows });
-  } catch (err) {
-    console.error("❌ GET /api/admin/reservations error:", err?.message || err);
-    res.status(500).json({ ok: false, error: "server_error" });
-  }
-});
-
-// ✅ STEP 1: create reservation as PENDING (before PayPal)
-app.post("/api/reservations/create", async (req, res) => {
+app.post("/api/reservations", async (req, res) => {
   try {
     const full_name = pickString(req.body.full_name);
     const phone = pickString(req.body.phone);
@@ -169,6 +133,9 @@ app.post("/api/reservations/create", async (req, res) => {
     const currency = pickString(req.body.currency || "EUR") || "EUR";
     const payment_method = pickString(req.body.payment_method || "paypal") || "paypal";
 
+    const paypal_order_id = pickString(req.body.paypal_order_id);
+    const paypal_capture_id = pickString(req.body.paypal_capture_id);
+
     if (!full_name) return badRequest(res, "full_name obligatoire");
     if (!phone) return badRequest(res, "phone obligatoire");
     if (!service_type) return badRequest(res, "service_type obligatoire");
@@ -177,9 +144,9 @@ app.post("/api/reservations/create", async (req, res) => {
     const insert = await pool.query(
       `INSERT INTO reservations
         (full_name, phone, email, service_type, from_city, to_city, check_in, check_out, travelers, notes,
-         deposit_amount, currency, status)
+         deposit_amount, currency, payment_method, paypal_order_id, paypal_capture_id, status)
        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending')
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING *;`,
       [
         full_name,
@@ -194,51 +161,27 @@ app.post("/api/reservations/create", async (req, res) => {
         notes || null,
         Number.isFinite(deposit_amount) ? deposit_amount : 15,
         currency,
+        payment_method,
+        paypal_order_id || null,
+        paypal_capture_id || null,
+        paypal_capture_id ? "paid" : "pending",
       ]
     );
 
-    return res.status(201).json({ ok: true, reservation: insert.rows[0] });
-  } catch (err) {
-    console.error("❌ POST /api/reservations/create error:", err?.message || err);
-    return res.status(500).json({ ok: false, error: "server_error" });
-  }
-});
+    const reservation = insert.rows[0];
 
-// ✅ STEP 2: finalize reservation after PayPal capture (paid + emails)
-app.post("/api/reservations/finalize", async (req, res) => {
-  try {
-    const reservation_id = Number(req.body.reservation_id);
-    const paypal_order_id = pickString(req.body.paypal_order_id);
-    const paypal_capture_id = pickString(req.body.paypal_capture_id);
-
-    if (!Number.isFinite(reservation_id)) return badRequest(res, "reservation_id obligatoire");
-    if (!paypal_order_id) return badRequest(res, "paypal_order_id obligatoire");
-    if (!paypal_capture_id) return badRequest(res, "paypal_capture_id obligatoire");
-
-    const upd = await pool.query(
-      `UPDATE reservations
-       SET paypal_order_id=$1, paypal_capture_id=$2, status='paid'
-       WHERE id=$3
-       RETURNING *;`,
-      [paypal_order_id, paypal_capture_id, reservation_id]
-    );
-
-    const reservation = upd.rows[0];
-    if (!reservation) return res.status(404).json({ ok: false, error: "reservation_not_found" });
-
-    // Send emails (non-blocking)
+    // Email optionnel (ne bloque jamais)
     if (RESEND_API_KEY) {
       try {
         await sendEmailResend({
           to: ADMIN_EMAIL,
-          subject: `🧾 Paiement reçu #${reservation.id} - ${reservation.service_type}`,
+          subject: `🧾 Nouvelle réservation #${reservation.id} - ${service_type}`,
           html: renderAdminEmail(reservation),
         });
-
-        if (reservation.email) {
+        if (email) {
           await sendEmailResend({
-            to: reservation.email,
-            subject: `✅ Paiement confirmé - StoreFlight (#${reservation.id})`,
+            to: email,
+            subject: `✅ Réservation confirmée - StoreFlight (#${reservation.id})`,
             html: renderClientEmail(reservation),
           });
         }
@@ -247,10 +190,48 @@ app.post("/api/reservations/finalize", async (req, res) => {
       }
     }
 
-    return res.json({ ok: true, reservation });
+    return res.status(201).json({ ok: true, reservation });
   } catch (err) {
-    console.error("❌ POST /api/reservations/finalize error:", err?.message || err);
+    console.error("❌ POST /api/reservations error:", err?.message || err);
     return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
+
+/** =======================
+ *  ADMIN (JWT)
+ *  ======================= */
+
+// login
+app.post("/api/admin/login", (req, res) => {
+  try {
+    if (!JWT_SECRET) return res.status(500).json({ ok: false, error: "JWT_SECRET_missing" });
+    if (!ADMIN_USER || !ADMIN_PASS) return res.status(500).json({ ok: false, error: "ADMIN_USER_or_PASS_missing" });
+
+    const user = pickString(req.body.user);
+    const pass = pickString(req.body.pass);
+
+    if (!user || !pass) return badRequest(res, "user/pass obligatoires");
+
+    if (user !== ADMIN_USER || pass !== ADMIN_PASS) {
+      return res.status(401).json({ ok: false, error: "invalid_credentials" });
+    }
+
+    const token = jwt.sign({ role: "admin", user }, JWT_SECRET, { expiresIn: "7d" });
+    return res.json({ ok: true, token });
+  } catch (e) {
+    console.error("❌ admin login error:", e?.message || e);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
+
+// list reservations (admin only)
+app.get("/api/admin/reservations", requireAuth, async (_req, res) => {
+  try {
+    const r = await pool.query("SELECT * FROM reservations ORDER BY id DESC;");
+    res.json({ ok: true, reservations: r.rows });
+  } catch (err) {
+    console.error("❌ GET /api/admin/reservations error:", err?.message || err);
+    res.status(500).json({ ok: false, error: "server_error" });
   }
 });
 
@@ -278,11 +259,11 @@ async function getPayPalAccessToken() {
   return data.access_token;
 }
 
-// Create order
 app.post("/api/paypal/create-order", async (req, res) => {
   try {
     const amount = pickString(req.body.amount || "15.00");
     const currency = pickString(req.body.currency || "EUR");
+
     const token = await getPayPalAccessToken();
 
     const r = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
@@ -299,14 +280,14 @@ app.post("/api/paypal/create-order", async (req, res) => {
 
     const data = await r.json();
     if (!r.ok) return res.status(400).json({ ok: false, error: "paypal_create_failed", details: data });
-    return res.json({ ok: true, order: data });
+
+    return res.json({ ok: true, id: data.id });
   } catch (err) {
-    console.error("❌ POST /api/paypal/create-order error:", err?.message || err);
+    console.error("❌ create-order error:", err?.message || err);
     return res.status(500).json({ ok: false, error: "server_error" });
   }
 });
 
-// Capture order
 app.post("/api/paypal/capture-order", async (req, res) => {
   try {
     const orderID = pickString(req.body.orderID);
@@ -316,22 +297,25 @@ app.post("/api/paypal/capture-order", async (req, res) => {
 
     const r = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${orderID}/capture`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
     });
 
     const data = await r.json();
     if (!r.ok) return res.status(400).json({ ok: false, error: "paypal_capture_failed", details: data });
 
     const captureId = data?.purchase_units?.[0]?.payments?.captures?.[0]?.id || null;
-    return res.json({ ok: true, capture: data, captureId });
+    return res.json({ ok: true, captureId, raw: data });
   } catch (err) {
-    console.error("❌ POST /api/paypal/capture-order error:", err?.message || err);
+    console.error("❌ capture-order error:", err?.message || err);
     return res.status(500).json({ ok: false, error: "server_error" });
   }
 });
 
 /** =======================
- *  RESEND EMAIL
+ *  RESEND EMAIL (optionnel)
  *  ======================= */
 async function sendEmailResend({ to, subject, html }) {
   const r = await fetch("https://api.resend.com/emails", {
@@ -340,14 +324,8 @@ async function sendEmailResend({ to, subject, html }) {
       Authorization: `Bearer ${RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      from: EMAIL_FROM,
-      to: [to],
-      subject,
-      html,
-    }),
+    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, html }),
   });
-
   const data = await r.json();
   if (!r.ok) throw new Error(`Resend error: ${r.status} ${JSON.stringify(data)}`);
   return data;
@@ -356,13 +334,12 @@ async function sendEmailResend({ to, subject, html }) {
 function renderClientEmail(resv) {
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5">
-      <h2>✅ Paiement confirmé</h2>
+      <h2>✅ Réservation confirmée</h2>
       <p>Bonjour <b>${resv.full_name}</b>,</p>
-      <p>Votre paiement a été confirmé et votre réservation est enregistrée.</p>
+      <p>Nous avons bien reçu votre réservation sur <b>StoreFlight</b>.</p>
       <p><b>Service :</b> ${resv.service_type}</p>
       <p><b>Référence :</b> #${resv.id}</p>
       <p><b>Montant :</b> ${resv.deposit_amount} ${resv.currency}</p>
-      <p><b>Status :</b> ${resv.status}</p>
       <hr/>
       <p>📞 WhatsApp: 00212627201720 / 00221762383780</p>
       <p>Merci pour votre confiance 🙏</p>
@@ -373,7 +350,7 @@ function renderClientEmail(resv) {
 function renderAdminEmail(resv) {
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5">
-      <h2>🧾 Paiement reçu #${resv.id}</h2>
+      <h2>🧾 Nouvelle réservation #${resv.id}</h2>
       <p><b>Nom :</b> ${resv.full_name}</p>
       <p><b>Téléphone :</b> ${resv.phone}</p>
       <p><b>Email :</b> ${resv.email || "-"}</p>
@@ -390,74 +367,11 @@ function renderAdminEmail(resv) {
     </div>
   `;
 }
-/** =======================
- *  ADMIN AUTH (JWT)
- *  ======================= */
 
-function requireAdmin(req, res, next) {
-  try {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (!token) return res.status(401).json({ ok: false, error: "missing_token" });
-
-    if (!JWT_SECRET) return res.status(500).json({ ok: false, error: "JWT_SECRET_missing" });
-
-    const payload = jwt.verify(token, JWT_SECRET);
-    if (payload?.role !== "admin") return res.status(403).json({ ok: false, error: "forbidden" });
-
-    req.admin = payload;
-    next();
-  } catch (e) {
-    return res.status(401).json({ ok: false, error: "invalid_token" });
-  }
-}
-
-// Login admin -> returns JWT token
-app.post("/api/admin/login", async (req, res) => {
-  try {
-    const user = (req.body?.user || "").toString().trim();
-    const pass = (req.body?.pass || "").toString().trim();
-
-    if (!ADMIN_USER || !ADMIN_PASS) {
-      return res.status(500).json({ ok: false, error: "ADMIN_USER_or_PASS_missing" });
-    }
-    if (!JWT_SECRET) {
-      return res.status(500).json({ ok: false, error: "JWT_SECRET_missing" });
-    }
-
-    if (user !== ADMIN_USER || pass !== ADMIN_PASS) {
-      return res.status(401).json({ ok: false, error: "login_refused" });
-    }
-
-    const token = jwt.sign(
-      { role: "admin", user: ADMIN_USER },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    return res.json({ ok: true, token });
-  } catch (err) {
-    console.error("❌ POST /api/admin/login error:", err?.message || err);
-    return res.status(500).json({ ok: false, error: "server_error" });
-  }
-});
-
-// Protected: list reservations
-app.get("/api/admin/reservations", requireAdmin, async (_req, res) => {
-  try {
-    const r = await pool.query("SELECT * FROM reservations ORDER BY id DESC;");
-    return res.json({ ok: true, reservations: r.rows });
-  } catch (err) {
-    console.error("❌ GET /api/admin/reservations error:", err?.message || err);
-    return res.status(500).json({ ok: false, error: "server_error" });
-  }
-});
 /** =======================
  *  404 JSON
  *  ======================= */
-app.use((req, res) => {
-  res.status(404).json({ ok: false, error: "not_found", path: req.path });
-});
+app.use((req, res) => res.status(404).json({ ok: false, error: "not_found", path: req.path }));
 
 /** =======================
  *  START

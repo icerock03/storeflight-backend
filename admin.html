@@ -1,274 +1,157 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Admin — The Store Flight</title>
-  <link rel="stylesheet" href="assets/style.css" />
-  <style>
-    .wrap{max-width:1100px;margin:0 auto;padding:26px 14px}
-    .card{background:#171717;border:1px solid #222;border-radius:16px;padding:16px}
-    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    .inp{padding:10px 12px;border:1px solid #2a2a2a;border-radius:10px;background:#111;color:#fff;min-width:260px}
-    .btn{padding:10px 14px;border-radius:10px;border:1px solid #2a2a2a;background:#1a1a1a;color:#fff;cursor:pointer}
-    .btn.primary{background:#0ea5e9;border-color:#0ea5e9}
-    .small{opacity:.85;font-size:12px}
-    .err{white-space:pre-wrap;color:#ffb3b3;border:1px solid #442;padding:10px;border-radius:10px;background:#1a0f0f;margin-top:12px;display:none}
-    table{width:100%;border-collapse:collapse;margin-top:12px;overflow:hidden;border-radius:14px}
-    th,td{padding:10px;border-bottom:1px solid #222;text-align:left;vertical-align:top}
-    th{background:#141414}
-    tr:hover td{background:#121212}
-    .badge{padding:4px 10px;border-radius:999px;border:1px solid #333;font-size:12px}
-    .paid{border-color:#22c55e;color:#22c55e}
-    .pending{border-color:#f59e0b;color:#f59e0b}
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Paiement — The Store Flight</title>
+
+<!-- PayPal SDK -->
+<script>
+  // IMPORTANT: mets ton CLIENT ID (sandbox ou live selon PAYPAL_ENV côté backend)
+  const PAYPAL_CLIENT_ID = "AfUrubsCvRdT7fWJPaNImjSdiW0rKpxIvLO7Js8fwFYJK6tpZYDyqcUUY2u1E6ckodmgBEoy0OVSlzYU";
+  const PAYPAL_CURRENCY = "EUR";
+  const s = document.createElement("script");
+  s.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(PAYPAL_CLIENT_ID)}&currency=${encodeURIComponent(PAYPAL_CURRENCY)}`;
+  s.onload = () => window.__paypalLoaded = true;
+  s.onerror = () => window.__paypalLoaded = false;
+  document.head.appendChild(s);
+</script>
+
+<style>
+  body{background:#0b0f17;color:#fff;font-family:Arial;margin:0;padding:60px 16px}
+  .box{max-width:560px;margin:0 auto;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:18px}
+  h1{margin:0 0 8px}
+  .muted{opacity:.85;font-size:13px;line-height:1.4}
+  .line{height:1px;background:rgba(255,255,255,.12);margin:14px 0}
+  .warn{background:rgba(255,193,7,.12);border:1px solid rgba(255,193,7,.25);padding:10px;border-radius:12px;margin-top:12px}
+  .err{background:rgba(255,0,0,.10);border:1px solid rgba(255,0,0,.25);padding:10px;border-radius:12px;margin-top:12px;white-space:pre-wrap}
+  .btnBack{display:inline-block;margin-top:12px;color:#ffd166;text-decoration:none;font-weight:bold}
+</style>
 </head>
 
 <body>
-<header class="nav">
-  <div class="container inner">
-    <a href="index.html" aria-label="Accueil"><img src="assets/logo.svg" alt="The Store Flight" style="height:44px"></a>
-    <nav class="menu">
-      <a href="index.html">Accueil</a>
-      <a href="services.html">Services</a>
-      <a href="reserver.html">Réserver</a>
-      <a href="contact.html">Contact</a>
-    </nav>
+  <div class="box">
+    <h1>Paiement acompte 15€</h1>
+    <div class="muted">Après paiement, votre réservation est enregistrée automatiquement.</div>
+    <div class="line"></div>
+
+    <div id="summary" class="muted"></div>
+
+    <div id="paypal-button-container" style="margin-top:14px"></div>
+
+    <div id="msg" class="muted" style="margin-top:12px"></div>
+    <div id="err" class="err" style="display:none"></div>
+
+    <a class="btnBack" href="reserver.html">← Retour réservation</a>
   </div>
-</header>
-
-<div class="wrap">
-
-  <!-- LOGIN -->
-  <div class="card" id="loginCard">
-    <h2>🔒 Admin Login</h2>
-    <p class="small">Connexion sécurisée (JWT) via le backend Render.</p>
-
-    <div class="row" style="margin-top:10px">
-      <input id="backend" class="inp" value="https://storeflight-backend-1.onrender.com" />
-      <button class="btn" id="saveBackend">Enregistrer backend</button>
-    </div>
-
-    <div class="row" style="margin-top:10px">
-      <input id="user" class="inp" placeholder="Email admin" />
-      <input id="pass" class="inp" placeholder="Mot de passe" type="password" />
-      <button class="btn primary" id="loginBtn">Se connecter</button>
-    </div>
-
-    <div class="err" id="errLogin"></div>
-  </div>
-
-  <!-- APP -->
-  <div class="card" id="appCard" style="display:none">
-    <div class="row" style="justify-content:space-between">
-      <div>
-        <h2 style="margin:0">Admin — Réservations</h2>
-        <div class="small" id="info"></div>
-      </div>
-      <div class="row">
-        <button class="btn" id="reload">Charger</button>
-        <button class="btn" id="logout">Logout</button>
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:12px">
-      <input id="search" class="inp" placeholder="Rechercher (nom, tel, email, service…)" />
-      <select id="filter" class="inp" style="min-width:180px">
-        <option value="all">Tous</option>
-        <option value="paid">Payés</option>
-        <option value="pending">En attente</option>
-      </select>
-    </div>
-
-    <div class="err" id="errApp"></div>
-
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Client</th>
-          <th>Service</th>
-          <th>Trajet / Détails</th>
-          <th>Paiement</th>
-          <th>Date</th>
-        </tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
-
-</div>
 
 <script>
-  const backendEl = document.getElementById("backend");
-  const saveBackendBtn = document.getElementById("saveBackend");
+  const BACKEND = "https://storeflight-backend-1.onrender.com";
+  const msg = document.getElementById("msg");
+  const err = document.getElementById("err");
+  const summary = document.getElementById("summary");
 
-  const loginCard = document.getElementById("loginCard");
-  const appCard = document.getElementById("appCard");
-
-  const userEl = document.getElementById("user");
-  const passEl = document.getElementById("pass");
-  const loginBtn = document.getElementById("loginBtn");
-  const errLogin = document.getElementById("errLogin");
-
-  const errApp = document.getElementById("errApp");
-  const rowsEl = document.getElementById("rows");
-  const infoEl = document.getElementById("info");
-  const reloadBtn = document.getElementById("reload");
-  const logoutBtn = document.getElementById("logout");
-  const searchEl = document.getElementById("search");
-  const filterEl = document.getElementById("filter");
-
-  backendEl.value = localStorage.getItem("admin_backend") || backendEl.value;
-
-  function showErr(el, msg){
-    el.style.display = "block";
-    el.textContent = msg;
+  function showErr(text){
+    err.style.display = "block";
+    err.textContent = text;
   }
-  function clearErr(el){
-    el.style.display = "none";
-    el.textContent = "";
+  function clearErr(){
+    err.style.display = "none";
+    err.textContent = "";
   }
 
-  function safe(v){ return (v===null||v===undefined) ? "" : String(v); }
-  function badge(status){
-    const s = (status||"").toLowerCase();
-    if(s==="paid") return `<span class="badge paid">paid</span>`;
-    return `<span class="badge pending">${safe(status||"pending")}</span>`;
+  const reservation = JSON.parse(localStorage.getItem("reservation") || "null");
+
+  if(!reservation){
+    summary.innerHTML = `<div class="warn">⚠️ Aucune réservation trouvée. Merci de remplir le formulaire d’abord.</div>`;
+    msg.textContent = "";
+  } else {
+    summary.innerHTML = `
+      <b>Client:</b> ${reservation.full_name || "-"} • <b>Tél:</b> ${reservation.phone || "-"}<br>
+      <b>Service:</b> ${reservation.service_type || "-"} • <b>Montant:</b> 15 EUR
+    `;
   }
 
-  let reservations = [];
-
-  function render(list){
-    rowsEl.innerHTML = "";
-    for(const r of list){
-      const date = r.created_at ? new Date(r.created_at).toLocaleString() : "";
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><b>#${safe(r.id)}</b></td>
-        <td>
-          <div><b>${safe(r.full_name)}</b></div>
-          <div class="small">${safe(r.phone)} ${r.email ? "• "+safe(r.email) : ""}</div>
-        </td>
-        <td>${safe(r.service_type)}</td>
-        <td>
-          <div>${safe(r.from_city)} ${r.to_city ? "→ "+safe(r.to_city) : ""}</div>
-          <div class="small">
-            ${r.check_in ? "Départ: "+safe(r.check_in) : ""} 
-            ${r.check_out ? " | Retour: "+safe(r.check_out) : ""} 
-            ${r.travelers ? " | Pax: "+safe(r.travelers) : ""}
-          </div>
-          <div class="small">${r.notes ? "Note: "+safe(r.notes) : ""}</div>
-        </td>
-        <td>
-          <div><b>${safe(r.deposit_amount)} ${safe(r.currency)}</b></div>
-          <div class="small">Order: ${safe(r.paypal_order_id) || "-"}</div>
-          <div class="small">Capture: ${safe(r.paypal_capture_id) || "-"}</div>
-          <div class="small">Status: ${badge(r.status)}</div>
-        </td>
-        <td class="small">${date}</td>
-      `;
-      rowsEl.appendChild(tr);
+  async function waitPaypal(){
+    // attend que le SDK soit vraiment chargé
+    for(let i=0;i<50;i++){
+      if(window.paypal && typeof window.paypal.Buttons === "function") return true;
+      await new Promise(r => setTimeout(r, 100));
     }
-    infoEl.textContent = `${list.length} réservation(s).`;
+    return false;
   }
 
-  function applyFilters(){
-    const q = (searchEl.value||"").toLowerCase().trim();
-    const st = filterEl.value;
-    let list = [...reservations];
-
-    if(st!=="all"){
-      list = list.filter(x => (x.status||"").toLowerCase()===st);
-    }
-    if(q){
-      list = list.filter(r => {
-        const blob = [
-          r.full_name, r.phone, r.email, r.service_type, r.from_city, r.to_city,
-          r.notes, r.currency, r.paypal_order_id, r.paypal_capture_id, r.status
-        ].map(v => (v||"").toString().toLowerCase()).join(" ");
-        return blob.includes(q);
-      });
-    }
-    render(list);
-  }
-
-  function getBackend(){
-    return backendEl.value.trim().replace(/\/$/, "");
-  }
-
-  function getToken(){
-    return localStorage.getItem("admin_token") || "";
-  }
-
-  async function loadReservations(){
-    clearErr(errApp);
-    infoEl.textContent = "Chargement...";
-    const backend = getBackend();
-    const token = getToken();
-
-    const r = await fetch(`${backend}/api/admin/reservations`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-
-    const data = await r.json().catch(()=>({}));
-    if(!r.ok || !data.ok){
-      showErr(errApp, "Erreur:\n" + JSON.stringify(data, null, 2));
-      infoEl.textContent = "";
+  (async () => {
+    if(!reservation){
+      showErr("Aucune réservation en localStorage.\nRetourne sur reserver.html puis clique Valider et payer.");
       return;
     }
 
-    reservations = data.reservations || [];
-    applyFilters();
-  }
-
-  // Auto-login si token existe
-  if(getToken()){
-    loginCard.style.display="none";
-    appCard.style.display="block";
-    loadReservations();
-  }
-
-  saveBackendBtn.addEventListener("click", () => {
-    localStorage.setItem("admin_backend", getBackend());
-    alert("✅ Backend enregistré");
-  });
-
-  loginBtn.addEventListener("click", async () => {
-    try{
-      clearErr(errLogin);
-      const backend = getBackend();
-
-      const r = await fetch(`${backend}/api/admin/login`, {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ user: userEl.value.trim(), pass: passEl.value.trim() })
-      });
-
-      const data = await r.json().catch(()=>({}));
-      if(!r.ok || !data.ok){
-        showErr(errLogin, "Login refusé.\n" + JSON.stringify(data, null, 2));
-        return;
-      }
-
-      localStorage.setItem("admin_token", data.token);
-      loginCard.style.display="none";
-      appCard.style.display="block";
-      await loadReservations();
-    }catch(e){
-      showErr(errLogin, "Erreur: " + (e?.message || e));
+    const ok = await waitPaypal();
+    if(!ok){
+      showErr("PayPal ne s'est pas chargé.\n- Vérifie que ton client-id est correct\n- Essaie Ctrl+F5\n- Vérifie la console (F12) > Console");
+      return;
     }
-  });
 
-  reloadBtn.addEventListener("click", loadReservations);
+    clearErr();
+    msg.textContent = "PayPal prêt ✅";
 
-  logoutBtn.addEventListener("click", () => {
-    localStorage.removeItem("admin_token");
-    location.reload();
-  });
+    paypal.Buttons({
+      createOrder: async () => {
+        msg.textContent = "Création du paiement...";
+        const r = await fetch(`${BACKEND}/api/paypal/create-order`, {
+          method: "POST",
+          headers: { "Content-Type":"application/json" },
+          body: JSON.stringify({ amount: "15.00", currency: "EUR" })
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok || !data.ok) throw new Error("create-order: " + JSON.stringify(data));
+        return data.id; // orderID
+      },
 
-  searchEl.addEventListener("input", applyFilters);
-  filterEl.addEventListener("change", applyFilters);
+      onApprove: async (data) => {
+        try{
+          msg.textContent = "Validation du paiement...";
+          const cap = await fetch(`${BACKEND}/api/paypal/capture-order`, {
+            method: "POST",
+            headers: { "Content-Type":"application/json" },
+            body: JSON.stringify({ orderID: data.orderID })
+          });
+          const capData = await cap.json().catch(()=>({}));
+          if(!cap.ok || !capData.ok) throw new Error("capture-order: " + JSON.stringify(capData));
+
+          // Enregistrer la réservation
+          msg.textContent = "Enregistrement réservation...";
+          const payload = {
+            ...reservation,
+            paypal_order_id: data.orderID,
+            paypal_capture_id: capData.captureId,
+            status: "paid"
+          };
+
+          const save = await fetch(`${BACKEND}/api/reservations`, {
+            method: "POST",
+            headers: { "Content-Type":"application/json" },
+            body: JSON.stringify(payload)
+          });
+          const saved = await save.json().catch(()=>({}));
+          if(!save.ok || !saved.ok) throw new Error("save-reservation: " + JSON.stringify(saved));
+
+          localStorage.removeItem("reservation");
+          window.location.href = "success.html";
+        }catch(e){
+          console.error(e);
+          showErr(String(e?.message || e));
+          msg.textContent = "❌ Erreur. Réessaie ou contacte WhatsApp.";
+        }
+      },
+
+      onError: (e) => {
+        console.error(e);
+        showErr("PayPal error: " + (e?.message || e));
+      }
+    }).render("#paypal-button-container");
+  })();
 </script>
 
 </body>

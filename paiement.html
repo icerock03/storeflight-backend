@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Paiement — StoreFlight</title>
 
-  <!-- IMPORTANT: client-id public (OK) + currency -->
+  <!-- PayPal SDK -->
   <script src="https://www.paypal.com/sdk/js?client-id=AfUrubsCvRdT7fWJPaNImjSdiW0rKpxIvLO7Js8fwFYJK6tpZYDyqcUUY2u1E6ckodmgBEoy0OVSlzYU&currency=EUR"></script>
 
   <style>
@@ -13,6 +13,7 @@
     .card{max-width:520px;width:100%;background:#121826;border:1px solid #1f2937;border-radius:16px;padding:22px}
     .muted{opacity:.85}
     .err{margin-top:12px;background:#2a0f12;border:1px solid #5b1b22;color:#ffb3b3;padding:10px;border-radius:12px;white-space:pre-wrap}
+    .ok{margin-top:12px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);color:#22c55e;padding:10px;border-radius:12px;white-space:pre-wrap}
     a{color:#ffd166;text-decoration:none}
   </style>
 </head>
@@ -37,50 +38,67 @@
   const msg = document.getElementById("msg");
   const summary = document.getElementById("summary");
 
+  function showErr(text){
+    msg.innerHTML = `<div class="err">${text}</div>`;
+  }
+  function showOk(text){
+    msg.innerHTML = `<div class="ok">${text}</div>`;
+  }
+
+  // ✅ Wake-up Render (évite "waiting for ...")
+  fetch(`${BACKEND}/api/health`).catch(()=>{});
+
   if(!reservation){
-    msg.innerHTML = '<div class="err">Aucune réservation trouvée (localStorage vide). Retournez sur la page Réserver.</div>';
+    showErr("Aucune réservation trouvée (localStorage vide). Retournez sur la page Réserver.");
   } else {
     summary.textContent =
       `Client: ${reservation.full_name || "-"} • Tél: ${reservation.phone || "-"}\n` +
       `Service: ${reservation.service_type || "-"} • Montant: 15 EUR`;
   }
 
-  function showErr(text){
-    msg.innerHTML = `<div class="err">${text}</div>`;
-  }
-
   paypal.Buttons({
     createOrder: async () => {
       try{
+        showOk("Connexion au serveur de paiement...");
+
         const r = await fetch(`${BACKEND}/api/paypal/create-order`, {
           method: "POST",
           headers: {"Content-Type":"application/json"},
           body: JSON.stringify({ amount: "15.00", currency: "EUR" })
         });
 
-        const data = await r.json();
+        const data = await r.json().catch(()=> ({}));
         if(!r.ok || !data.ok) throw new Error(JSON.stringify(data, null, 2));
-        return data.id; // PayPal orderID
+
+        // ✅ Supporte 2 formats possibles:
+        // { ok:true, id:"ORDERID" } ou { ok:true, order:{ id:"ORDERID" } }
+        const orderId = data.id || data.order?.id;
+        if(!orderId) throw new Error("order id introuvable: " + JSON.stringify(data, null, 2));
+
+        return orderId;
       }catch(e){
-        showErr("PayPal error: create-order: " + (e.message || e));
+        showErr("PayPal error: create-order:\n" + (e.message || e));
         throw e;
       }
     },
 
     onApprove: async (data) => {
       try{
+        showOk("Paiement approuvé ✅ Finalisation...");
+
         // 1) capture côté backend
         const r = await fetch(`${BACKEND}/api/paypal/capture-order`, {
           method: "POST",
           headers: {"Content-Type":"application/json"},
           body: JSON.stringify({ orderID: data.orderID })
         });
-        const cap = await r.json();
+
+        const cap = await r.json().catch(()=> ({}));
         if(!r.ok || !cap.ok) throw new Error(JSON.stringify(cap, null, 2));
 
         // 2) enregistrer réservation en base (paid)
         reservation.paypal_order_id = data.orderID;
-        reservation.paypal_capture_id = cap.captureId;
+        reservation.paypal_capture_id = cap.captureId || null;
         reservation.status = "paid";
 
         const r2 = await fetch(`${BACKEND}/api/reservations`,{
@@ -88,14 +106,25 @@
           headers:{ "Content-Type":"application/json" },
           body: JSON.stringify(reservation)
         });
-        const saved = await r2.json();
+
+        const saved = await r2.json().catch(()=> ({}));
         if(!r2.ok || !saved.ok) throw new Error(JSON.stringify(saved, null, 2));
 
+        // ✅ Pour afficher les détails sur success.html
+        localStorage.setItem("last_reservation", JSON.stringify(reservation));
+
+        // ✅ Nettoyage
         localStorage.removeItem("reservation");
+
+        // ✅ Redirect
         location.href = "success.html";
       }catch(e){
         showErr("Erreur après paiement:\n" + (e.message || e));
       }
+    },
+
+    onCancel: () => {
+      showErr("Paiement annulé. Vous pouvez réessayer.");
     }
   }).render("#paypal-button-container");
 </script>

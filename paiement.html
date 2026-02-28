@@ -11,10 +11,11 @@
   <style>
     body{background:#0b0f15;color:#fff;font-family:Arial;margin:0;padding:40px;display:flex;justify-content:center}
     .card{max-width:520px;width:100%;background:#121826;border:1px solid #1f2937;border-radius:16px;padding:22px}
-    .muted{opacity:.85}
+    .muted{opacity:.85;white-space:pre-line}
     .err{margin-top:12px;background:#2a0f12;border:1px solid #5b1b22;color:#ffb3b3;padding:10px;border-radius:12px;white-space:pre-wrap}
     .ok{margin-top:12px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);color:#22c55e;padding:10px;border-radius:12px;white-space:pre-wrap}
     a{color:#ffd166;text-decoration:none}
+    .tiny{opacity:.7;font-size:12px;margin-top:10px}
   </style>
 </head>
 <body>
@@ -28,15 +29,20 @@
   <div id="paypal-button-container"></div>
   <div id="msg"></div>
 
+  <div class="tiny" id="backendInfo"></div>
+
   <p style="margin-top:16px"><a href="reserver.html">← Retour réservation</a></p>
 </div>
 
 <script>
+  // ✅ Backend Render
   const BACKEND = "https://storeflight-backend-1.onrender.com";
 
   const reservation = JSON.parse(localStorage.getItem("reservation") || "null");
   const msg = document.getElementById("msg");
   const summary = document.getElementById("summary");
+  const backendInfo = document.getElementById("backendInfo");
+  backendInfo.textContent = "Backend: " + BACKEND;
 
   function showErr(text){
     msg.innerHTML = `<div class="err">${text}</div>`;
@@ -45,88 +51,114 @@
     msg.innerHTML = `<div class="ok">${text}</div>`;
   }
 
-  // ✅ Wake-up Render (évite "waiting for ...")
+  function explainFetchError(e){
+    const m = (e?.message || String(e || "")).toLowerCase();
+    if (m.includes("failed to fetch") || m.includes("networkerror")) {
+      return "❌ Erreur réseau/CORS.\n" +
+             "➡️ Vérifie que le backend est en ligne et que CORS_ORIGIN contient:\n" +
+             "https://thestoreflight.online et https://www.thestoreflight.online\n" +
+             "➡️ Vérifie aussi que tu es bien en HTTPS.";
+    }
+    return e?.message || String(e);
+  }
+
+  // ✅ Wake-up Render (évite sleeping)
   fetch(`${BACKEND}/api/health`).catch(()=>{});
 
   if(!reservation){
-    showErr("Aucune réservation trouvée (localStorage vide). Retournez sur la page Réserver.");
+    summary.textContent = "";
+    showErr("Aucune réservation trouvée (localStorage vide).\nRetournez sur la page Réserver.");
+    // On n'affiche pas PayPal
+    document.getElementById("paypal-button-container").style.display = "none";
   } else {
     summary.textContent =
       `Client: ${reservation.full_name || "-"} • Tél: ${reservation.phone || "-"}\n` +
       `Service: ${reservation.service_type || "-"} • Montant: 15 EUR`;
+
+    paypal.Buttons({
+      createOrder: async () => {
+        try{
+          showOk("Connexion au serveur de paiement...");
+
+          const r = await fetch(`${BACKEND}/api/paypal/create-order`, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ amount: "15.00", currency: "EUR" })
+          });
+
+          const data = await r.json().catch(()=> ({}));
+          if(!r.ok || !data.ok){
+            throw new Error("create-order error:\n" + JSON.stringify(data, null, 2));
+          }
+
+          const orderId = data.id || data.order?.id;
+          if(!orderId){
+            throw new Error("Order ID introuvable:\n" + JSON.stringify(data, null, 2));
+          }
+
+          return orderId;
+        }catch(e){
+          showErr("PayPal error: create-order\n\n" + explainFetchError(e));
+          throw e;
+        }
+      },
+
+      onApprove: async (data) => {
+        try{
+          showOk("Paiement approuvé ✅ Finalisation...");
+
+          // 1) capture côté backend
+          const r = await fetch(`${BACKEND}/api/paypal/capture-order`, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ orderID: data.orderID })
+          });
+
+          const cap = await r.json().catch(()=> ({}));
+          if(!r.ok || !cap.ok){
+            throw new Error("capture-order error:\n" + JSON.stringify(cap, null, 2));
+          }
+
+          // 2) enregistrer réservation en base (paid)
+          const payload = { ...reservation };
+          payload.paypal_order_id = data.orderID;
+          payload.paypal_capture_id = cap.captureId || null;
+          payload.status = "paid";
+
+          // sécurité: vérifier champs minimum
+          if(!payload.full_name || !payload.phone || !payload.service_type){
+            throw new Error("Réservation incomplète. Retournez sur la page Réserver.");
+          }
+
+          const r2 = await fetch(`${BACKEND}/api/reservations`,{
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          const saved = await r2.json().catch(()=> ({}));
+          if(!r2.ok || !saved.ok){
+            throw new Error("save reservation error:\n" + JSON.stringify(saved, null, 2));
+          }
+
+          // ✅ Pour afficher les détails sur success.html
+          localStorage.setItem("last_reservation", JSON.stringify(saved.reservation || payload));
+
+          // ✅ Nettoyage
+          localStorage.removeItem("reservation");
+
+          // ✅ Redirect
+          location.href = "success.html";
+        }catch(e){
+          showErr("Erreur après paiement:\n\n" + explainFetchError(e));
+        }
+      },
+
+      onCancel: () => {
+        showErr("Paiement annulé. Vous pouvez réessayer.");
+      }
+    }).render("#paypal-button-container");
   }
-
-  paypal.Buttons({
-    createOrder: async () => {
-      try{
-        showOk("Connexion au serveur de paiement...");
-
-        const r = await fetch(`${BACKEND}/api/paypal/create-order`, {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({ amount: "15.00", currency: "EUR" })
-        });
-
-        const data = await r.json().catch(()=> ({}));
-        if(!r.ok || !data.ok) throw new Error(JSON.stringify(data, null, 2));
-
-        // ✅ Supporte 2 formats possibles:
-        // { ok:true, id:"ORDERID" } ou { ok:true, order:{ id:"ORDERID" } }
-        const orderId = data.id || data.order?.id;
-        if(!orderId) throw new Error("order id introuvable: " + JSON.stringify(data, null, 2));
-
-        return orderId;
-      }catch(e){
-        showErr("PayPal error: create-order:\n" + (e.message || e));
-        throw e;
-      }
-    },
-
-    onApprove: async (data) => {
-      try{
-        showOk("Paiement approuvé ✅ Finalisation...");
-
-        // 1) capture côté backend
-        const r = await fetch(`${BACKEND}/api/paypal/capture-order`, {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({ orderID: data.orderID })
-        });
-
-        const cap = await r.json().catch(()=> ({}));
-        if(!r.ok || !cap.ok) throw new Error(JSON.stringify(cap, null, 2));
-
-        // 2) enregistrer réservation en base (paid)
-        reservation.paypal_order_id = data.orderID;
-        reservation.paypal_capture_id = cap.captureId || null;
-        reservation.status = "paid";
-
-        const r2 = await fetch(`${BACKEND}/api/reservations`,{
-          method:"POST",
-          headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify(reservation)
-        });
-
-        const saved = await r2.json().catch(()=> ({}));
-        if(!r2.ok || !saved.ok) throw new Error(JSON.stringify(saved, null, 2));
-
-        // ✅ Pour afficher les détails sur success.html
-        localStorage.setItem("last_reservation", JSON.stringify(reservation));
-
-        // ✅ Nettoyage
-        localStorage.removeItem("reservation");
-
-        // ✅ Redirect
-        location.href = "success.html";
-      }catch(e){
-        showErr("Erreur après paiement:\n" + (e.message || e));
-      }
-    },
-
-    onCancel: () => {
-      showErr("Paiement annulé. Vous pouvez réessayer.");
-    }
-  }).render("#paypal-button-container");
 </script>
 
 </body>

@@ -9,15 +9,19 @@ const app = express();
 
 /** ENV */
 const PORT = process.env.PORT || 10000;
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 const DATABASE_URL = process.env.DATABASE_URL || "";
+
+// ✅ CORS: mettre dans Render:
+// CORS_ORIGIN=https://thestoreflight.online,https://www.thestoreflight.online
+// ou juste: CORS_ORIGIN=https://thestoreflight.online
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 
 // Admin JWT
 const JWT_SECRET = process.env.JWT_SECRET || "";
 const ADMIN_USER = process.env.ADMIN_USER || "";
 const ADMIN_PASS = process.env.ADMIN_PASS || "";
 
-// PayPal (optionnel si tu utilises paiement côté front)
+// PayPal
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID || "";
 const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET || "";
 const PAYPAL_ENV = (process.env.PAYPAL_ENV || "sandbox").toLowerCase(); // sandbox | live
@@ -32,13 +36,37 @@ const EMAIL_FROM = process.env.EMAIL_FROM || "StoreFlight <onboarding@resend.dev
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "thestoresarlau@gmail.com";
 
 /** MIDDLEWARE */
+app.set("trust proxy", 1);
+app.use(express.json({ limit: "1mb" }));
+
+// ✅ CORS corrigé (robuste, accepte 1 ou plusieurs domaines)
+const allowedOrigins =
+  CORS_ORIGIN === "*"
+    ? ["*"]
+    : CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean);
+
 app.use(
   cors({
-    origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN,
+    origin: (origin, cb) => {
+      // Autorise Postman / serveur-to-serveur (pas de Origin)
+      if (!origin) return cb(null, true);
+
+      // Si "*" => on autorise tout (cors renverra l'origin automatiquement)
+      if (allowedOrigins.includes("*")) return cb(null, true);
+
+      // Autorise uniquement les origines listées
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+
+      return cb(new Error(`CORS blocked: ${origin}`));
+    },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-app.use(express.json({ limit: "1mb" }));
+
+// Important pour les requêtes preflight
+app.options("*", cors());
 
 /** DB */
 const pool = new Pool({
@@ -109,7 +137,7 @@ function requireAuth(req, res, next) {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.admin = decoded;
     next();
-  } catch (e) {
+  } catch (_e) {
     return res.status(401).json({ ok: false, error: "invalid_token" });
   }
 }
@@ -144,7 +172,8 @@ app.get("/api/admin/reservations", requireAuth, async (_req, res) => {
  *  RESERVATIONS PUBLIC
  *  ======================= */
 
-// GET all reservations (je te conseille de supprimer en prod, ou de le protéger)
+// ⚠️ (Optionnel) Je te conseille de supprimer en prod ou de protéger.
+// Je le laisse comme ton code original.
 app.get("/api/reservations", async (_req, res) => {
   try {
     const r = await pool.query("SELECT * FROM reservations ORDER BY id DESC;");
@@ -240,13 +269,14 @@ app.post("/api/reservations", async (req, res) => {
 });
 
 /** =======================
- *  PAYPAL (optionnel)
+ *  PAYPAL
  *  ======================= */
 async function getPayPalAccessToken() {
   if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
     throw new Error("PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET manquants");
   }
 
+  // Node 18+ => fetch existe
   const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString("base64");
 
   const r = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
@@ -303,31 +333,31 @@ async function sendEmailResend({ to, subject, html }) {
   return data;
 }
 
-function renderClientEmail(res) {
+function renderClientEmail(resv) {
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5">
       <h2>✅ Réservation confirmée</h2>
-      <p>Bonjour <b>${res.full_name}</b>,</p>
-      <p>Référence : <b>#${res.id}</b></p>
-      <p>Service : <b>${res.service_type}</b></p>
-      <p>Montant : <b>${res.deposit_amount} ${res.currency}</b></p>
+      <p>Bonjour <b>${resv.full_name}</b>,</p>
+      <p>Référence : <b>#${resv.id}</b></p>
+      <p>Service : <b>${resv.service_type}</b></p>
+      <p>Montant : <b>${resv.deposit_amount} ${resv.currency}</b></p>
       <hr/>
       <p>📞 WhatsApp: 00212627201720 / 00221762383780</p>
     </div>
   `;
 }
 
-function renderAdminEmail(res) {
+function renderAdminEmail(resv) {
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5">
-      <h2>🧾 Nouvelle réservation #${res.id}</h2>
-      <p><b>Nom :</b> ${res.full_name}</p>
-      <p><b>Téléphone :</b> ${res.phone}</p>
-      <p><b>Email :</b> ${res.email || "-"}</p>
-      <p><b>Service :</b> ${res.service_type}</p>
-      <p><b>Status :</b> ${res.status}</p>
-      <p><b>Order :</b> ${res.paypal_order_id || "-"}</p>
-      <p><b>Capture :</b> ${res.paypal_capture_id || "-"}</p>
+      <h2>🧾 Nouvelle réservation #${resv.id}</h2>
+      <p><b>Nom :</b> ${resv.full_name}</p>
+      <p><b>Téléphone :</b> ${resv.phone}</p>
+      <p><b>Email :</b> ${resv.email || "-"}</p>
+      <p><b>Service :</b> ${resv.service_type}</p>
+      <p><b>Status :</b> ${resv.status}</p>
+      <p><b>Order :</b> ${resv.paypal_order_id || "-"}</p>
+      <p><b>Capture :</b> ${resv.paypal_capture_id || "-"}</p>
     </div>
   `;
 }

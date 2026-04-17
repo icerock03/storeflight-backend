@@ -2,77 +2,131 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Réserver</title>
+<title>Paiement - StoreFlight</title>
+
+<script src="https://www.paypal.com/sdk/js?client-id=AfUrubsCvRdT7fWJPaNImjSdiW0rKpxIvLO7Js8fwFYJK6tpZYDyqcUUY2u1E6ckodmgBEoy0OVSlzYU&currency=EUR"></script>
+
 <style>
-body{font-family:Arial;background:#111;color:#fff;text-align:center;padding:40px}
-input,select,textarea{width:300px;padding:10px;margin:8px;border:none;border-radius:6px}
-button{padding:12px 25px;background:gold;border:none;border-radius:6px;font-weight:bold;cursor:pointer}
+body {
+  background: #0b0f15;
+  color: white;
+  font-family: Arial;
+  display: flex;
+  justify-content: center;
+  padding: 40px;
+}
+
+.card {
+  background: #121826;
+  padding: 20px;
+  border-radius: 10px;
+  width: 420px;
+  text-align: center;
+}
+
+#msg { margin-top: 10px; }
 </style>
 </head>
+
 <body>
 
-<h1>Réservation</h1>
+<div class="card">
+  <h2>Paiement sécurisé 🔒</h2>
 
-<form id="form">
-  <input id="full_name" placeholder="Nom complet" required>
-  <input id="phone" placeholder="Téléphone" required>
-  <input id="email" placeholder="Email (optionnel)">
+  <div id="summary"></div>
 
-  <select id="service_type">
-    <option value="vol">Vol</option>
-    <option value="hotel">Hôtel</option>
-    <option value="visa">Visa</option>
-    <option value="voyage">Voyage organisé</option>
-    <option value="assurance">Assurance</option>
-    <option value="evisa">eVisa</option>
-  </select>
+  <br>
 
-  <input id="from_city" placeholder="Ville départ">
-  <input id="to_city" placeholder="Destination">
+  <div id="paypal-button-container"></div>
 
-  <label>Date départ</label><br>
-  <input type="date" id="check_in"><br>
+  <div id="msg"></div>
 
-  <label>Date retour</label><br>
-  <input type="date" id="check_out"><br>
-
-  <input id="travelers" type="number" value="1" min="1">
-
-  <textarea id="notes" placeholder="Notes"></textarea><br>
-
-  <button type="submit">Valider et payer</button>
-</form>
+</div>
 
 <script>
-  // préselection service via ?service=visa etc.
-  const p = new URLSearchParams(location.search);
-  const s = p.get("service");
-  if (s) document.getElementById("service_type").value = s;
+const BACKEND = "https://storeflight-backend-1.onrender.com";
 
-  document.getElementById("form").addEventListener("submit", (e) => {
-    e.preventDefault();
+const reservation = JSON.parse(localStorage.getItem("reservation") || "null");
 
-    const data = {
-      full_name: full_name.value.trim(),
-      phone: phone.value.trim(),
-      email: email.value.trim(), // optionnel
-      service_type: service_type.value,
-      from_city: from_city.value.trim(),
-      to_city: to_city.value.trim(),
-      check_in: check_in.value || null,
-      check_out: check_out.value || null,
-      travelers: Number(travelers.value || 1),
-      notes: notes.value.trim(),
-      deposit_amount: 15,
-      currency: "EUR",
-      payment_method: "paypal"
-    };
+const summary = document.getElementById("summary");
+const msg = document.getElementById("msg");
 
-    localStorage.setItem("reservation", JSON.stringify(data));
-    location.href = "paiement.html";
-  });
+if (!reservation) {
+  msg.innerHTML = "❌ Aucune réservation trouvée";
+} else {
+
+  summary.innerHTML = `
+    <b>${reservation.full_name}</b><br>
+    Service: ${reservation.service_type}<br>
+    Départ: ${reservation.from_city}<br>
+    Destination: ${reservation.to_city}<br>
+    Dates: ${reservation.check_in} → ${reservation.check_out}<br>
+    Voyageurs: ${reservation.travelers}
+  `;
+
+  paypal.Buttons({
+
+    createOrder: async () => {
+      const res = await fetch(`${BACKEND}/api/paypal/create-order`, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ amount: "15.00", currency: "EUR" })
+      });
+
+      const data = await res.json();
+      return data.order.id;
+    },
+
+    onApprove: async (data) => {
+      try {
+
+        msg.innerHTML = "Paiement validé...";
+
+        const payload = {
+          full_name: reservation.full_name,
+          phone: reservation.phone,
+          email: reservation.email,
+          service_type: reservation.service_type,
+          from_city: reservation.from_city,
+          to_city: reservation.to_city,
+          check_in: reservation.check_in,
+          check_out: reservation.check_out,
+          travelers: reservation.travelers,
+          notes: reservation.notes,
+          paypal_order_id: data.orderID,
+          status: "paid"
+        };
+
+        const r = await fetch(`${BACKEND}/api/reservations`, {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        });
+
+        const result = await r.json();
+
+        if (result.ok) {
+          localStorage.removeItem("reservation");
+
+          msg.innerHTML = "✅ Réservation confirmée !";
+
+          setTimeout(() => {
+            window.location.href = "success.html";
+          }, 2000);
+
+        } else {
+          msg.innerHTML = "❌ Erreur: " + result.error;
+        }
+
+      } catch (err) {
+        console.error(err);
+        msg.innerHTML = "❌ Erreur serveur";
+      }
+    }
+
+  }).render('#paypal-button-container');
+}
 </script>
 
 </body>
 </html>
-
